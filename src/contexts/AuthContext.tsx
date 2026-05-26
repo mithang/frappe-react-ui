@@ -1,0 +1,145 @@
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { getFrappeApp, initializeFrappe, STORAGE_KEY_URL } from '@/lib/frappe';
+
+interface User {
+  name: string;
+  email: string;
+  full_name: string;
+  user_image?: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  erpnextUrl: string;
+  login: (username: string, password: string, erpnextUrl?: string) => Promise<void>;
+  logout: () => void;
+  checkAuth: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [erpnextUrl, setErpnextUrl] = useState<string>(() => {
+    // Get stored URL on initial load
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(STORAGE_KEY_URL) || 'https://demo.erpnext.com';
+    }
+    return 'https://demo.erpnext.com';
+  });
+
+  const checkAuth = async () => {
+    try {
+      const frappe = getFrappeApp();
+
+      // Check if there's a stored session
+      if (!frappe.hasStoredSession()) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      // Try to get current user info from server
+      const currentUser = await frappe.getCurrentUser();
+
+      if (currentUser && currentUser !== 'Guest') {
+        // Fetch full user details
+        try {
+          const response = await frappe.call('frappe.client.get', {
+            doctype: 'User',
+            name: currentUser,
+          });
+          if (response.message) {
+            setUser({
+              name: response.message.name,
+              email: response.message.email,
+              full_name: response.message.full_name || response.message.name,
+              user_image: response.message.user_image,
+            });
+          } else {
+            setUser({
+              name: currentUser,
+              email: currentUser,
+              full_name: currentUser,
+            });
+          }
+        } catch {
+          // Fallback to basic user info
+          setUser({
+            name: currentUser,
+            email: currentUser,
+            full_name: currentUser,
+          });
+        }
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (username: string, password: string, newErpnextUrl?: string) => {
+    setIsLoading(true);
+    try {
+      // Initialize Frappe with the provided URL if given
+      if (newErpnextUrl) {
+        initializeFrappe(newErpnextUrl);
+        setErpnextUrl(newErpnextUrl);
+      }
+
+      const frappe = getFrappeApp();
+      await frappe.login(username, password);
+      await checkAuth();
+    } catch (error) {
+      setIsLoading(false);
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      const frappe = getFrappeApp();
+      await frappe.logout();
+    } catch (error) {
+      console.error('Logout failed:', error);
+    } finally {
+      setUser(null);
+    }
+  };
+
+  useEffect(() => {
+    // Check for existing session on startup
+    checkAuth();
+  }, []);
+
+  const value: AuthContextType = {
+    user,
+    isAuthenticated: !!user,
+    isLoading,
+    erpnextUrl,
+    login,
+    logout,
+    checkAuth,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
