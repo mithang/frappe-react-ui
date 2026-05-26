@@ -9,16 +9,32 @@ Unlike simple API wrappers, this project implements a full **SMVC (Smart Model-V
 ## ✨ Core Features
 
 - 🧠 **True Metadata-Driven UI:** Forms and lists dynamically build themselves by fetching DocType metadata from the Frappe server.
-- 🔌 **Pluggable Architecture:**
-  - `DocTypeRegistry`: Register custom React components for specific DocTypes.
-  - `FieldRegistry`: Extendable registry for adding custom field renderers.
-  - `ScriptRegistry`: Run standard Frappe client scripts dynamically.
-  - `ExtensionRegistry`: Add completely custom views and functionality.
-- 🏗 **SMVC Pattern:** 
-  - Uses `FormController` and `ListController` to manage document lifecycles securely.
+- 💾 **Full Data Lifecycle (CRUD):** Built-in `DocumentModel` and `FormController` handle `create`, `update`, `save`, and `delete` operations seamlessly, including executing Frappe's `before_save` and `after_save` client scripts.
+- 🔗 **Advanced Link Field Handling:** Fully supports standard and **Dynamic Links**. Uses native `frappe.desk.search.search_link` RPC calls with debouncing and renders results in a fast, keyboard-accessible combobox.
 - 🔒 **Native Frappe Auth:** Uses the official `frappe-js-sdk` to authenticate and maintain sessions with the Frappe backend. No proxy server needed.
 - ⌨️ **Command Palette:** Built-in `Cmd+K` command palette for quick navigation, mimicking Frappe's awesomebar.
-- 🎨 **Modern Stack:** React 18, Vite, shadcn/ui, Tailwind CSS, TanStack Query, and Zustand.
+
+---
+
+## 🎨 UI Framework Stack
+
+This project achieves a modern, SaaS-like aesthetic without compromising accessibility:
+
+- **React 18** as the core library.
+- **shadcn/ui** for the component system.
+- **Radix UI** primitives under the hood to ensure full accessibility (WAI-ARIA compliance, screen reader support, keyboard navigation).
+- **Tailwind CSS** for all styling, layouts, and theming (including out-of-the-box Dark Mode).
+- **Lucide React** for beautiful, consistent iconography.
+
+---
+
+## 🔌 Pluggable Architecture
+
+The framework is built to be extended:
+- `DocTypeRegistry`: Register custom React components for specific DocTypes.
+- `FieldRegistry`: Extendable registry for adding custom field renderers (like barcode scanners or custom maps).
+- `ScriptRegistry`: Run standard Frappe client scripts dynamically.
+- `ExtensionRegistry`: Add completely custom views and functionality.
 
 ---
 
@@ -35,9 +51,9 @@ src/
 ├── views/                 # Core Views
 │   ├── forms/             # SmartForm (Dynamic Form Engine)
 │   ├── lists/             # SmartList (Dynamic List Engine)
-│   └── fields/            # Standard Field Renderers (Data, Link, Table, etc)
+│   └── fields/            # Field Renderers (Data, Link, Dynamic Link, Table, etc)
 ├── models/                # Data Models
-│   └── DocumentModel.ts   # Document state wrapper
+│   └── DocumentModel.ts   # Document state wrapper & CRUD logic via SDK
 ├── components/            # UI Components
 │   └── ui/                # shadcn/ui primitives
 ├── extensions/            # Example Custom Extensions
