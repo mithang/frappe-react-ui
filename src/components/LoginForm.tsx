@@ -28,7 +28,7 @@ const LoginForm: React.FC = () => {
     defaultValues: {
       username: '',
       password: '',
-      erpnextUrl: erpnextUrl || 'https://demo.erpnext.com',
+      erpnextUrl: erpnextUrl || '',
     },
   });
 

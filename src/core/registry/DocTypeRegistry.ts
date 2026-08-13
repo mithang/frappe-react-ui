@@ -1,4 +1,4 @@
-import type { DocTypeComponents } from '../types';
+import type { DocTypeComponents, FieldRenderer } from '../types';
 
 /**
  * DocTypeRegistry - Registry for custom DocType components
@@ -57,6 +57,14 @@ class DocTypeRegistryImpl {
      */
     getFieldRenderer(doctype: string, fieldname: string) {
         return this.components.get(doctype)?.fields?.[fieldname];
+    }
+
+    /**
+     * Convenience wrapper around register() for the single-field-override case — this is the
+     * method referenced by docs/agent-rules/add-field-renderer.md.
+     */
+    registerFieldRenderer(doctype: string, fieldname: string, renderer: FieldRenderer): void {
+        this.register(doctype, { fields: { [fieldname]: renderer } });
     }
 
     /**
