@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -17,6 +17,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ doctype, name }) => 
   const [withLetterhead, setWithLetterhead] = useState(true);
   const [htmlContent, setHtmlContent] = useState('');
   const [loading, setLoading] = useState(true);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     const loadFormats = async () => {
@@ -42,12 +43,13 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ doctype, name }) => 
     setLoading(true);
     try {
       const frappe = getFrappeApp();
-      const html = await frappe.call('frappe.www.printview.get_html_and_style', {
+      const response = await frappe.call('frappe.www.printview.get_html_and_style', {
         doc: { doctype, name },
         print_format: printFormat,
         no_letterhead: withLetterhead ? 0 : 1,
       });
-      setHtmlContent(typeof html === 'string' ? html : (html as Record<string, string>)?.html || '');
+      const result = response?.message;
+      setHtmlContent(typeof result === 'string' ? result : result?.html || '');
     } catch (err) {
       console.error('Failed to load print HTML:', err);
     } finally {
@@ -60,7 +62,10 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ doctype, name }) => 
   }, [fetchPrintHTML]);
 
   const handlePrint = () => {
-    window.print();
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      iframeRef.current.contentWindow.focus();
+      iframeRef.current.contentWindow.print();
+    }
   };
 
   return (
@@ -106,6 +111,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ doctype, name }) => 
             <div className="py-24 text-center text-sm text-muted-foreground">Loading print preview...</div>
           ) : (
             <iframe
+              ref={iframeRef}
               title="Print Preview"
               srcDoc={htmlContent}
               sandbox="allow-same-origin allow-scripts allow-modals"
