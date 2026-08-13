@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Workspace, WorkspaceWidget } from '@/hooks/useWorkspaces';
 import { WorkspaceQuickList } from '@/components/widgets/WorkspaceQuickList';
+import { WorkspaceCard } from '@/components/widgets/WorkspaceCard';
 import { NumberCardWidget } from '@/components/widgets/NumberCardWidget';
 import { ChartWidget } from '@/components/widgets/ChartWidget';
 import { OnboardingWidget } from '@/components/widgets/OnboardingWidget';
@@ -103,14 +104,7 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
       case 'card':
         return (
           <div key={widget.id} className={colClass}>
-            <Card className="h-full cursor-pointer hover:shadow-md transition-all duration-200 hover:border-primary/50">
-              <CardContent className="p-6 flex flex-col items-center justify-center h-full gap-3">
-                <div className="p-3 rounded-full bg-primary/5 text-primary">
-                  <IconForShortcut name={widget.data.card_name || ''} />
-                </div>
-                <span className="text-sm font-medium text-center">{widget.data.card_name}</span>
-              </CardContent>
-            </Card>
+            <WorkspaceCard workspace={workspace} widget={widget} />
           </div>
         );
 
