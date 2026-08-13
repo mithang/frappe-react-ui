@@ -77,51 +77,51 @@ export function ChartWidget({ chartName }: ChartProps) {
   );
 
   return (
-    <Card className="h-full hover:shadow-md transition-all duration-200 flex flex-col">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">{chartName}</CardTitle>
-          <BarChart3Icon className="h-4 w-4 text-muted-foreground" />
+    <Card className="flex flex-col hover:shadow-md transition-all duration-200">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <div className="flex flex-col space-y-1.5">
+          <CardTitle className="text-sm font-medium">{chartName}</CardTitle>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col justify-end">
+      <CardContent className="flex-1 pb-4">
         {isLoading ? (
-          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-[200px] w-full" />
         ) : unsupported ? (
-          <div className="h-40 bg-muted/50 rounded-md border border-dashed flex items-center justify-center">
+          <div className="h-[200px] bg-muted/20 rounded-md border border-dashed flex items-center justify-center">
             <span className="text-muted-foreground text-sm">{unsupported}</span>
           </div>
         ) : rows.length > 0 && chartData ? (
-          <ChartContainer config={chartConfig} className="h-40 w-full">
+          <ChartContainer config={chartConfig} className="h-[200px] w-full">
             {chartType === 'Bar' || chartType === 'Percentage' ? (
-              <BarChart data={rows}>
+              <BarChart data={rows} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
-                <ChartTooltip content={<ChartTooltipContent />} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} tickFormatter={(value) => value.slice(0, 10)} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dashed" />} />
                 {chartData.datasets.map((ds, i) => (
-                  <Bar key={ds.name} dataKey={ds.name} fill={`hsl(var(--chart-${(i % 5) + 1}))`} radius={4} />
+                  <Bar key={ds.name} dataKey={ds.name} fill={`hsl(var(--chart-${(i % 5) + 1}))`} radius={[4, 4, 0, 0]} />
                 ))}
               </BarChart>
             ) : (
-              <LineChart data={rows}>
+              <LineChart data={rows} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
-                <ChartTooltip content={<ChartTooltipContent />} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} tickFormatter={(value) => value.slice(0, 10)} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dashed" />} />
                 {chartData.datasets.map((ds, i) => (
                   <Line
                     key={ds.name}
                     dataKey={ds.name}
-                    type="monotone"
+                    type="natural"
                     stroke={`hsl(var(--chart-${(i % 5) + 1}))`}
                     strokeWidth={2}
-                    dot={false}
+                    dot={{ fill: `hsl(var(--chart-${(i % 5) + 1}))` }}
+                    activeDot={{ r: 6 }}
                   />
                 ))}
               </LineChart>
             )}
           </ChartContainer>
         ) : (
-          <div className="h-40 bg-muted/50 rounded-md border border-dashed flex items-center justify-center">
+          <div className="h-[200px] bg-muted/20 rounded-md border border-dashed flex items-center justify-center">
             <span className="text-muted-foreground text-sm">No chart data available</span>
           </div>
         )}

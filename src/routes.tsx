@@ -1,5 +1,5 @@
 import type { RouteObject } from 'react-router-dom';
-import Dashboard from '@/components/Dashboard';
+import { HomeRedirect } from '@/components/HomeRedirect';
 import WorkspaceView from '@/components/WorkspaceView';
 import { SmartForm } from '@/views/forms';
 import { SmartList } from '@/views/lists';
@@ -18,7 +18,7 @@ import NotFound from '@/pages/NotFound';
  * (alternate views), once SmartList has a real view-switcher to drive them from.
  */
 export const routes: RouteObject[] = [
-  { path: '/', element: <Dashboard /> },
+  { path: '/', element: <HomeRedirect /> },
   { path: '/workspace/:workspaceName', element: <WorkspaceView /> },
   { path: '/doctype/:doctype', element: <SmartList /> },
   { path: '/doctype/:doctype/print/:name', element: <PrintView /> },

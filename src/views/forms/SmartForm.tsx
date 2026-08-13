@@ -30,19 +30,26 @@ import type { FormControllerImpl } from '@/controllers/FormController';
  * SmartForm - SMVC-based dynamic form component
  * Automatically uses custom DocType forms if registered
  */
-const SmartForm: React.FC = () => {
-    const { doctype, name } = useParams<{ doctype: string; name?: string }>();
+const SmartForm: React.FC<{ doctype?: string; name?: string; onClose?: () => void }> = ({
+    doctype: propDoctype,
+    name: propName,
+    onClose,
+}) => {
+    const params = useParams<{ doctype: string; name?: string }>();
+    const doctype = propDoctype || params.doctype;
+    const name = propName || params.name;
     const navigate = useNavigate();
     const { toast } = useToast();
 
     // Check for custom form component
     const CustomForm = doctype ? DocTypeRegistry.getForm(doctype) : undefined;
     if (CustomForm) {
-        return <CustomForm doctype={doctype!} name={name} />;
+        // @ts-ignore - custom forms may not yet support onClose prop
+        return <CustomForm doctype={doctype!} name={name} onClose={onClose} />;
     }
 
     // Use default dynamic form
-    return <DefaultForm doctype={doctype!} name={name} />;
+    return <DefaultForm doctype={doctype!} name={name} onClose={onClose} />;
 };
 
 // ============================================================================
@@ -111,9 +118,10 @@ const DashboardPreview: React.FC<{ doc: Document; doctype: string }> = ({ doc, d
 interface DefaultFormProps {
     doctype: string;
     name?: string;
+    onClose?: () => void;
 }
 
-const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name }) => {
+const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name, onClose }) => {
     const navigate = useNavigate();
     const { toast } = useToast();
     const isNew = !name || name === 'new';
@@ -138,7 +146,8 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name }) => {
                 title: 'Success',
                 description: `${doctype} ${isNew ? 'created' : 'updated'} successfully`,
             });
-            navigate(`/doctype/${doctype}`);
+            if (onClose) onClose();
+            else navigate(`/doctype/${doctype}`);
         },
         onError: (error) => {
             const msg = error.message || `Failed to ${isNew ? 'create' : 'update'} ${doctype}`;
@@ -246,9 +255,19 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name }) => {
                             </p>
                         </div>
                         <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => navigate(`/doctype/${doctype}`)}>
-                                ← Back to List
+                            <Button variant="outline" size="sm" onClick={() => onClose ? onClose() : navigate(`/doctype/${doctype}`)}>
+                                {onClose ? 'Close' : '← Back to List'}
                             </Button>
+                            {onClose && !isNew && (
+                                <Button variant="outline" size="sm" onClick={() => window.open(`/doctype/${doctype}/${name}`, '_blank')}>
+                                    Open Full View
+                                </Button>
+                            )}
+                            {!isNew && (
+                                <Button variant="outline" size="sm" onClick={() => window.open(`/doctype/${doctype}/print/${name}`, '_blank')}>
+                                    Print
+                                </Button>
+                            )}
                             {!isNew && !canAmend && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
@@ -344,7 +363,7 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name }) => {
                                         type="button"
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => navigate(`/doctype/${doctype}`)}
+                                        onClick={() => onClose ? onClose() : navigate(`/doctype/${doctype}`)}
                                     >
                                         Cancel
                                     </Button>
