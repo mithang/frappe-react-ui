@@ -43,8 +43,12 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ doctype, name }) => 
     setLoading(true);
     try {
       const frappe = getFrappeApp();
+      // doc/name must be separate strings, not {doctype, name} — the server only fully loads
+      // the document (fields, child tables) via this path; an object routes to frappe.get_doc()
+      // instead, which builds a doc from just the given keys and renders every field blank.
       const response = await frappe.call('frappe.www.printview.get_html_and_style', {
-        doc: { doctype, name },
+        doc: doctype,
+        name,
         print_format: printFormat,
         no_letterhead: withLetterhead ? 0 : 1,
       });
