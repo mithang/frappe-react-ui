@@ -150,45 +150,41 @@ export class FormControllerImpl implements IFormController {
     }
 
     async save(action: DocstatusAction = 'Save'): Promise<void> {
-        try {
-            const validateResult = await ScriptRegistry.executeHook(this.doctype, 'validate', this);
-            if (!validateResult) {
-                throw new Error('Validation failed');
-            }
-
-            await ScriptRegistry.executeHook(this.doctype, 'before_save', this);
-
-            const errors = this.validate();
-            if (Object.keys(errors).length > 0) {
-                for (const [fieldname, error] of Object.entries(errors)) {
-                    this.store.getState().setError(fieldname, error);
-                }
-                // Name the fields — a required field can sit on a collapsed section or an
-                // inactive tab, where its inline error is invisible, so "Required fields missing"
-                // alone left nothing to act on.
-                const labels = this._meta.fields
-                    .filter((f) => errors[f.fieldname])
-                    .map((f) => f.label || f.fieldname);
-                throw new Error(`Required: ${labels.join(', ')}`);
-            }
-
-            const docToSave: Document & { __islocal?: 0 | 1 } = this._isNew
-                ? { ...this.doc, __islocal: 1 }
-                : this.doc;
-
-            const { doc: savedDoc } = await this.client.saveDoc(docToSave, action);
-
-            this._isNew = false;
-            // resetTo is the ONLY thing that clears dirty/errors/overrides — a completed save
-            // qualifies (a fresh, authoritative copy of the document just arrived from the server).
-            this.store.getState().resetTo(savedDoc);
-
-            await ScriptRegistry.executeHook(this.doctype, action === 'Submit' ? 'after_submit' : 'after_save', this);
-
-            EventBus.emit('doc:saved', { doctype: this.doctype, name: savedDoc.name, doc: savedDoc });
-        } catch (error) {
-            throw error;
+        const validateResult = await ScriptRegistry.executeHook(this.doctype, 'validate', this);
+        if (!validateResult) {
+            throw new Error('Validation failed');
         }
+
+        await ScriptRegistry.executeHook(this.doctype, 'before_save', this);
+
+        const errors = this.validate();
+        if (Object.keys(errors).length > 0) {
+            for (const [fieldname, error] of Object.entries(errors)) {
+                this.store.getState().setError(fieldname, error);
+            }
+            // Name the fields — a required field can sit on a collapsed section or an
+            // inactive tab, where its inline error is invisible, so "Required fields missing"
+            // alone left nothing to act on.
+            const labels = this._meta.fields
+                .filter((f) => errors[f.fieldname])
+                .map((f) => f.label || f.fieldname);
+            throw new Error(`Required: ${labels.join(', ')}`);
+        }
+
+        const docToSave: Document & { __islocal?: 0 | 1 } = this._isNew
+            ? { ...this.doc, __islocal: 1 }
+            : this.doc;
+
+        const { doc: savedDoc } = await this.client.saveDoc(docToSave, action);
+
+        this._isNew = false;
+        // resetTo is the ONLY thing that clears dirty/errors/overrides — a completed save
+        // qualifies (a fresh, authoritative copy of the document just arrived from the server).
+        this.store.getState().resetTo(savedDoc);
+
+        await ScriptRegistry.executeHook(this.doctype, action === 'Submit' ? 'after_submit' : 'after_save', this);
+
+        EventBus.emit('doc:saved', { doctype: this.doctype, name: savedDoc.name, doc: savedDoc });
     }
 
     async submit(): Promise<void> {

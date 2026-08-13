@@ -28,10 +28,52 @@ describe('evaluateDependsOn', () => {
   });
 
   it('fails open (returns true) and logs when the expression throws', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(evaluateDependsOn('eval:doc.nonexistent.deep.path', {})).toBe(true);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it('reports each unevaluatable expression only once', () => {
+    // These run on every render of every field; logging per-render buried the console in
+    // thousands of identical lines.
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const expr = 'eval:someUnknownGlobal.doThing(doc)';
+    evaluateDependsOn(expr, {});
+    evaluateDependsOn(expr, {});
+    evaluateDependsOn(expr, {});
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('checks arrays by length, matching Desk (an empty child table is falsy)', () => {
+    expect(evaluateDependsOn('items', { items: [] })).toBe(false);
+    expect(evaluateDependsOn('items', { items: [{ item_code: 'X' }] })).toBe(true);
+  });
+
+  describe("Frappe's eval globals", () => {
+    it('supports in_list — the single most-used helper in real depends_on expressions', () => {
+      const expr = 'eval:in_list(["Material Transfer", "Material Receipt"], doc.purpose)';
+      expect(evaluateDependsOn(expr, { purpose: 'Material Receipt' })).toBe(true);
+      expect(evaluateDependsOn(expr, { purpose: 'Manufacture' })).toBe(false);
+    });
+
+    it('supports cint/flt/cstr with Frappe semantics', () => {
+      expect(evaluateDependsOn('eval:cint(doc.flag) === 1', { flag: true })).toBe(true);
+      expect(evaluateDependsOn('eval:cint(doc.missing) === 0', {})).toBe(true);
+      expect(evaluateDependsOn('eval:flt(doc.amount) > 10.5', { amount: '10.75' })).toBe(true);
+      expect(evaluateDependsOn('eval:cstr(doc.missing) === ""', {})).toBe(true);
+    });
+
+    it('exposes frappe.boot without throwing on the common developer_mode read', () => {
+      expect(evaluateDependsOn('eval:!frappe.boot.developer_mode', {})).toBe(true);
+    });
+
+    it('binds parent for child-row expressions', () => {
+      expect(
+        evaluateDependsOn('eval:parent.company === "ACME"', { qty: 1 }, { company: 'ACME' })
+      ).toBe(true);
+    });
   });
 });
 
