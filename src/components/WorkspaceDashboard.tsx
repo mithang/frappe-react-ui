@@ -134,15 +134,22 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
           </div>
         );
 
-      case 'quick_list':
+      case 'quick_list': {
+        // quick_list_name is the LABEL of a row in the workspace's own `quick_lists` child
+        // table — that row holds the real target doctype and filters.
+        const quickListName = widget.data.quick_list_name || '';
+        const config = workspace.quickLists?.find((q) => q.label === quickListName);
         return (
           <div key={widget.id} className={colClass}>
             <QuickListWidget
-              listName={widget.data.quick_list_name || ''}
+              listName={quickListName}
+              documentType={config?.document_type}
+              quickListFilter={config?.quick_list_filter}
               col={widget.data.col || 12}
             />
           </div>
         );
+      }
 
       case 'onboarding':
         return (
