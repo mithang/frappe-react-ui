@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore, type StoreApi } from 'zustand';
 import type { Document, DocTypeMeta } from '@/core/types';
 import { ScriptRegistry } from '@/core/registry/ScriptRegistry';
+import { loadAndRunClientScripts } from '@/lib/scripts';
 import { getFrappeClient } from '@/lib/api/client';
 import { createFormStore, type FormState } from '@/store/formStore';
 import { FormControllerImpl, createFormController, createNewDocument, type DocstatusAction } from '@/controllers/FormController';
@@ -74,6 +75,10 @@ export function useFormController(options: UseFormControllerOptions): UseFormCon
                 storeRef.current!.getState().resetTo(doc);
                 const controller = createFormController(storeRef.current!, docMeta, isNew, client);
                 setFrm(controller);
+
+                // Server-defined Client Scripts (A7) must be registered before onload/refresh
+                // fire, or their hooks simply won't exist yet to run.
+                await loadAndRunClientScripts(doctype);
 
                 await ScriptRegistry.executeHook(doctype, 'onload', controller);
                 await ScriptRegistry.executeHook(doctype, 'refresh', controller);

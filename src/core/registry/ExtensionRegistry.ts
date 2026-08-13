@@ -10,7 +10,6 @@ import { ScriptRegistry } from './ScriptRegistry';
  */
 class ExtensionRegistryImpl {
     private extensions: Map<string, Extension> = new Map();
-    private loadingPromises: Map<string, Promise<Extension>> = new Map();
 
     /**
      * Register an extension
@@ -58,57 +57,6 @@ class ExtensionRegistryImpl {
 
         console.log(`[ExtensionRegistry] Registered extension: ${manifest.name} v${manifest.version}`);
         EventBus.emit('extension:loaded', { name: manifest.name });
-    }
-
-    /**
-     * Load a remote extension via Module Federation
-     * @param remoteEntry - URL to the remoteEntry.js file
-     * @param scope - The scope/name of the remote
-     * @param module - The module to load from the remote
-     */
-    async loadRemote(remoteEntry: string, scope: string, module: string = './extension'): Promise<Extension> {
-        const cacheKey = `${scope}:${module}`;
-
-        // Check if already loading
-        if (this.loadingPromises.has(cacheKey)) {
-            return this.loadingPromises.get(cacheKey)!;
-        }
-
-        const loadPromise = this.doLoadRemote(remoteEntry, scope, module);
-        this.loadingPromises.set(cacheKey, loadPromise);
-
-        try {
-            const extension = await loadPromise;
-            await this.register(extension);
-            return extension;
-        } finally {
-            this.loadingPromises.delete(cacheKey);
-        }
-    }
-
-    private async doLoadRemote(remoteEntry: string, scope: string, module: string): Promise<Extension> {
-        // Dynamic import of remote entry
-        await new Promise<void>((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = remoteEntry;
-            script.type = 'text/javascript';
-            script.async = true;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error(`Failed to load remote entry: ${remoteEntry}`));
-            document.head.appendChild(script);
-        });
-
-        // @ts-ignore - Module Federation globals
-        await __webpack_init_sharing__('default');
-        // @ts-ignore
-        const container = window[scope];
-        // @ts-ignore
-        await container.init(__webpack_share_scopes__.default);
-        // @ts-ignore
-        const factory = await container.get(module);
-        const Module = factory();
-
-        return Module.default || Module;
     }
 
     /**

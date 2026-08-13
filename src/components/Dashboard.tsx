@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatNumber } from '@/lib/format/formatNumber';
 import { useToast } from '@/hooks/use-toast';
 import { Briefcase, ArrowUpRight, Activity, Layers, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -88,7 +89,7 @@ const Dashboard: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <span className="text-3xl font-bold tracking-tight">
-                  {item.count !== null ? item.count.toLocaleString() : '--'}
+                  {item.count !== null ? formatNumber(item.count) : '--'}
                 </span>
                 <p className="text-xs text-muted-foreground font-medium">Total Documents</p>
               </div>

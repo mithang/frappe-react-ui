@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatDate } from '@/lib/format/formatDate';
 
 interface QuickListProps {
   listName: string;
@@ -87,7 +88,7 @@ export function QuickListWidget({ listName, col = 6 }: QuickListProps) {
                     {item.name}
                   </span>
                   <Badge variant="secondary" className="text-xs">
-                    {item.modified ? new Date(item.modified).toLocaleDateString() : 'No date'}
+                    {item.modified ? formatDate(item.modified) : 'No date'}
                   </Badge>
                 </div>
               ))

@@ -154,10 +154,93 @@ CLI / npm registry rather than assumed:**
   it — **deleted** (this was originally 1A's job in the plan; deferred in Wave 1 because it still
   had 3 real consumers then, now genuinely safe).
 
+## Post-Wave-3B/3C/4E (2026-08-13) — Claude, 3 parallel subagents + integration
+
+Built as three parallel, file-disjoint subagents (Client Script layer / extension discovery /
+formatting), each required to verify RPC shapes against the Frappe source checkout rather than
+guess, then integrated and gated together by hand.
+
+- `npx tsc -p tsconfig.app.json --noEmit`: **0 errors**. Lint: **59 errors, `no-explicit-any` 55**
+  — total dropped again (62→59), `no-explicit-any` held steady. Baselines lowered. Unit tests:
+  **94/94** across 15 files (55 new: 15 for the Client Script layer, 5 for extension discovery,
+  35 for formatting incl. edge cases). E2E: both specs still green after integration — this
+  matters because 3B's client-script loading and 3C's extension discovery now run on *every*
+  form load / app boot respectively, so a live re-run was the real test, not just a typecheck.
+  Also live-verified directly: the `frappe.utils.change_log.get_versions` RPC (extension
+  discovery) and the System Settings `get_value` call (formatting) both succeed against the
+  container with real data (`date_format: "dd-mm-yyyy"`, `number_format: "# ###.##"` — an
+  unusual space-grouped format that happened to already exist on this bench, a good incidental
+  proof the token replacer isn't just handling the common case); the `/assets/<app>/ui/
+  extension.manifest.json` probe 404s gracefully for both installed apps, as expected on a bench
+  shipping no UI extensions.
+- **A7 (Client Script compatibility) closed**: `src/lib/scripts/` — `frmProxy.ts`/`frappeProxy.ts`
+  wrap `FormControllerImpl`/the `FrappeClient` in the classic `frappe.ui.form.on('DocType', {...})`
+  surface (`frm.doc/set_value/get_value/set_df_property/toggle_*/add_custom_button/set_query/
+  refresh_field/save/call/add_child/clear_table`, `frappe.call/db.get_value/msgprint/throw/
+  ui.form.on`) via a `Proxy` whose `get`/`set` traps throw a named, attributed error for anything
+  outside that list — fail loudly, never silently no-op, per the plan's explicit requirement.
+  `fetchClientScripts.ts` queries the real `Client Script` doctype — verified fields from source
+  are `dt` (not `doctype`) and no `script_type` field exists in this Frappe version, both
+  corrections to what was assumed when the task was scoped. Wired into `useFormController.ts`:
+  server-defined scripts now load and run before `onload`/`refresh` fire, closing "Client scripts
+  only run if bundled; server-defined Client Scripts never fetched."
+- **A9 (broken module federation) closed**: `discoverExtensions.ts` replaces
+  `ExtensionRegistry.loadRemote`'s dead `__webpack_init_sharing__`/`__webpack_share_scopes__` code
+  (deleted outright, confirmed zero remaining `__webpack_` references anywhere in `src/`) with
+  real per-app manifest discovery (`frappe.utils.change_log.get_versions` for the installed-app
+  list — verified against source, not `frappe.apps.get_apps`, which is filtered by
+  desk-visibility hooks and wouldn't return a complete list) + `/assets/<app>/ui/
+  extension.manifest.json` probing + dynamic `import()` of the referenced ESM bundle, each app
+  isolated so one bad manifest/module never blocks another. Wired into `init.ts`'s existing
+  registration-list pattern as one more entry, not a structural change.
+- **4E (i18n/formatting) closed**: `src/lib/format/` sources date/number/currency formatting from
+  a real System Settings read (there is no boot RPC — see Wave 0's finding) with verified token
+  vocabularies pulled directly from `system_settings.json` in source (`date_format`'s only tokens
+  are `yyyy`/`mm`/`dd`; `number_format` has 10 concrete formats including Indian-style grouping)
+  rather than invented ones, with hardcoded safe fallback defaults so a slow/failed fetch never
+  breaks rendering. Currency formatting deliberately takes an explicit, optional symbol parameter
+  with no default guessing — a bare number's currency isn't derivable from System Settings alone
+  in real Frappe (it lives on a sibling Currency link field per-document), and guessing would be
+  exactly the kind of fabrication this project is trying to eliminate. Applied at 9 read sites
+  across `SmartList.tsx`, `CalendarView.tsx`, `DocInfoSidebar.tsx`, `FileManager.tsx`,
+  `KanbanView.tsx`, `QuickListWidget.tsx`, `NumberCardWidget.tsx`, `ChartWidget.tsx`, and
+  `Dashboard.tsx` — all replacing raw `toLocaleDateString()`/`toLocaleString()` calls that ignored
+  System Settings and were browser-locale-dependent.
+
+## 4A (realtime) — BLOCKED, not built, needs a decision
+
+The realtime subagent correctly stopped rather than work around its constraints. Two separate
+findings, both real:
+
+1. **No `socket.io-client` dependency exists** in this project (confirmed three ways: `require.
+   resolve` fails, absent from `package-lock.json`, and `frappe-js-sdk` — nominally installed —
+   doesn't pull it in transitively and isn't imported anywhere in `src/`, i.e. it's dead weight).
+   Adding it is a one-line `package.json` change but is a decision outside a subagent's remit
+   under this project's "don't add dependencies without asking" norm.
+2. **A likely architecture conflict, found by reading `frappe/realtime/auth.py`**: the socket.io
+   handshake's `_validate_origin` does an *exact* Host/Origin hostname match. This project's
+   documented deployment (see the Auth & transport section above) is deliberately cross-*origin*
+   same-*site* (`app.acme.com` SPA → `erp.acme.com` bench) — under that model a direct browser
+   socket connection would send `Origin: app.acme.com` against `Host: erp.acme.com` and get
+   rejected. There is no `allowed_referrers`-equivalent escape hatch for the realtime handshake
+   the way there is for the REST/CSRF path. Also unresolved: the socket namespace needs
+   `frappe.boot.sitename`, and there is no boot RPC to source it from client-side.
+
+Real RPC-level findings recorded for whoever picks this up: the verified subscribe/unsubscribe
+events are `doc_subscribe`/`doc_unsubscribe(doctype, docname)` joining room `doc:{doctype}/
+{docname}`; the server emits `doc_update` with `{modified, doctype, name}` (a refetch signal, not
+the full doc) via `Document.notify_update()`; real presence (`doc_open`/`doc_close` →
+`doc_viewers`) exists server-side but was out of scope for this pass. This needs a decision on
+(a) whether to add `socket.io-client`, and (b) how — or whether — to resolve the origin-validation
+conflict before building against it; building the client code without resolving (b) risks shipping
+a feature that fails silently in the exact production topology this plan committed to.
+
 ## What this baseline does NOT cover
 
 `LinkField.tsx`'s own read of the old global `useDocumentStore` (for Dynamic Link resolution, bug
 A2's other half) is still not migrated — it's a Wave 2C-owned file (AntiGravity's). List search is
 still client-side over just the current page, not a real server-side search — that's later Wave
-territory, not one of C1–C10. Don't read a green gate here as "the app works" in full; it means
-forms AND lists now save/load/submit/cancel/amend/delete/paginate for real, against a real bench.
+territory, not one of C1–C10. Realtime (4A) is unbuilt, blocked on the decision above. Don't read
+a green gate here as "the app works" in full; it means forms and lists save/load/submit/cancel/
+amend/delete/paginate for real against a real bench, server Client Scripts and downstream-app
+extensions actually load, and dates/numbers respect the bench's own System Settings.

@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { MessageSquare, Paperclip, UserPlus, Tag, Send, File } from 'lucide-react';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatDate } from '@/lib/format/formatDate';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface DocInfoSidebarProps {
@@ -119,7 +120,7 @@ export const DocInfoSidebar: React.FC<DocInfoSidebarProps> = ({
                 <div key={String(comment.name || idx)} className="p-3 bg-muted/40 rounded-lg text-xs space-y-1">
                   <div className="flex justify-between font-semibold text-foreground">
                     <span>{String(comment.comment_email || 'User')}</span>
-                    <span className="text-[10px] text-muted-foreground">{comment.creation ? new Date(String(comment.creation)).toLocaleDateString() : ''}</span>
+                    <span className="text-[10px] text-muted-foreground">{comment.creation ? formatDate(comment.creation) : ''}</span>
                   </div>
                   <p className="text-muted-foreground whitespace-pre-wrap">{String(comment.content || '')}</p>
                 </div>

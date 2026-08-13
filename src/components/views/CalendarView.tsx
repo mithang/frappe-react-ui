@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar } from '@/components/ui/calendar';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatDate } from '@/lib/format/formatDate';
 import { Calendar as CalendarIcon, Filter } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -79,7 +80,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ doctype, fieldToDate
           <CardHeader className="border-b flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">
               {selectedDate
-                ? `Events for ${selectedDate.toLocaleDateString()}`
+                ? `Events for ${formatDate(selectedDate)}`
                 : 'All Scheduled / Created Documents'}
             </CardTitle>
             <Badge variant="secondary">{filteredEvents.length}</Badge>
@@ -98,7 +99,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ doctype, fieldToDate
                         {docName}
                       </Link>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Date: {rawDate ? new Date(String(rawDate)).toLocaleDateString() : '-'}
+                        Date: {rawDate ? formatDate(rawDate) : '-'}
                       </p>
                     </div>
                   );

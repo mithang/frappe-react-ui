@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatNumber } from '@/lib/format/formatNumber';
 
 interface NumberCardProps {
   cardName: string;
@@ -79,7 +80,7 @@ export function NumberCardWidget({ cardName }: NumberCardProps) {
       } else if (val >= 1000) {
         return `${(val / 1000).toFixed(1)}K`;
       }
-      return val.toLocaleString();
+      return formatNumber(val);
     }
     return String(val);
   };

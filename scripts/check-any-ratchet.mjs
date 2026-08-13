@@ -7,11 +7,10 @@
 
 import { execFileSync } from 'node:child_process';
 
-// Recorded 2026-08-13, most recently after the Wave 2B list-engine rewrite (see
-// docs/BASELINE.md). Lower only, and only when the drop is genuine (a real fix), not by
-// excluding files from lint's scope.
+// Recorded 2026-08-13, most recently after Wave 3B/3C/4E (see docs/BASELINE.md). Lower only,
+// and only when the drop is genuine (a real fix), not by excluding files from lint's scope.
 const BASELINES = {
-  totalErrors: 62,
+  totalErrors: 59,
   noExplicitAny: 55,
 };
 

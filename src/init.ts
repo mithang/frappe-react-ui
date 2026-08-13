@@ -13,6 +13,7 @@ import { DocTypeRegistry } from '@/core/registry/DocTypeRegistry';
 import { FieldRegistry } from '@/core/registry/FieldRegistry';
 import { ScriptRegistry, registerClientScript } from '@/core/registry/ScriptRegistry';
 import { EventBus } from '@/core/eventbus/EventBus';
+import { discoverAndInstallExtensions } from '@/core/registry/discoverExtensions';
 
 let initialized = false;
 
@@ -29,6 +30,12 @@ interface Registration {
  */
 const registrations: Registration[] = [
     { name: 'field-renderers', register: registerDefaultFieldRenderers },
+    {
+        name: 'discover-extensions',
+        register: async () => {
+            await discoverAndInstallExtensions();
+        },
+    },
 ];
 
 /**
@@ -83,17 +90,6 @@ export function initializeFramework(): void {
 
     initialized = true;
     console.log('[FrappeCanvas] Framework initialized successfully');
-}
-
-/**
- * Load a remote extension
- */
-export async function loadExtension(
-    remoteEntry: string,
-    scope: string,
-    module: string = './extension'
-): Promise<void> {
-    await ExtensionRegistry.loadRemote(remoteEntry, scope, module);
 }
 
 /**
