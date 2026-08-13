@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Workspace, WorkspaceWidget } from '@/hooks/useWorkspaces';
-import { QuickListWidget } from '@/components/widgets/QuickListWidget';
+import { WorkspaceQuickList } from '@/components/widgets/WorkspaceQuickList';
 import { NumberCardWidget } from '@/components/widgets/NumberCardWidget';
 import { ChartWidget } from '@/components/widgets/ChartWidget';
 import { OnboardingWidget } from '@/components/widgets/OnboardingWidget';
@@ -134,22 +134,12 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
           </div>
         );
 
-      case 'quick_list': {
-        // quick_list_name is the LABEL of a row in the workspace's own `quick_lists` child
-        // table — that row holds the real target doctype and filters.
-        const quickListName = widget.data.quick_list_name || '';
-        const config = workspace.quickLists?.find((q) => q.label === quickListName);
+      case 'quick_list':
         return (
           <div key={widget.id} className={colClass}>
-            <QuickListWidget
-              listName={quickListName}
-              documentType={config?.document_type}
-              quickListFilter={config?.quick_list_filter}
-              col={widget.data.col || 12}
-            />
+            <WorkspaceQuickList workspace={workspace} widget={widget} />
           </div>
         );
-      }
 
       case 'onboarding':
         return (
