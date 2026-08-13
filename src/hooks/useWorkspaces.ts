@@ -21,7 +21,16 @@ export interface WorkspaceWidget {
     onboarding_name?: string;
     label?: string;
     col: number;
+    links?: { label?: string; link_type?: string; link_to?: string }[];
   };
+}
+
+export interface WorkspaceLink {
+  label: string;
+  link_type: string;
+  link_to: string;
+  type: string;
+  dependencies?: string;
 }
 
 export interface Workspace {
@@ -31,6 +40,14 @@ export interface Workspace {
   module?: string;
   shortcuts: WorkspaceShortcut[];
   widgets: WorkspaceWidget[];
+  links: WorkspaceLink[];
+  quickLists: WorkspaceQuickList[];
+}
+
+export interface WorkspaceQuickList {
+  label: string;
+  document_type: string;
+  quick_list_filter?: string;
 }
 
 interface WorkspaceListRow {
@@ -50,6 +67,24 @@ interface SidebarItemRow {
   link_type?: string;
   link_to?: string;
   icon?: string;
+}
+
+/** Row of Workspace's `quick_lists` child table (doctype: "Workspace Quick List", istable=1).
+ *  The content block only stores a `quick_list_name`, which is this row's `label` — the actual
+ *  target doctype and filters live here. */
+interface WorkspaceQuickListRow {
+  label?: string;
+  document_type?: string;
+  /** Stored as a JS array literal, not strict JSON — Frappe evaluates it (process_filter_expression). */
+  quick_list_filter?: string;
+}
+
+interface WorkspaceLinkRow {
+  label?: string;
+  link_type?: string;
+  link_to?: string;
+  type?: string;
+  dependencies?: string;
 }
 
 /**
@@ -99,7 +134,12 @@ export const useWorkspaces = () => {
         topLevel.map(async (page) => {
           try {
             const { doc } = await client.getDoc('Workspace', page.name);
-            const raw = doc as unknown as { sidebar_items?: SidebarItemRow[]; content?: string };
+            const raw = doc as unknown as {
+              sidebar_items?: SidebarItemRow[];
+              links?: WorkspaceLinkRow[];
+              quick_lists?: WorkspaceQuickListRow[];
+              content?: string;
+            };
 
             const sidebarLinks = (raw.sidebar_items ?? [])
               .filter((item) => item.type === 'Link' && item.link_type === 'DocType' && item.link_to)
@@ -110,6 +150,14 @@ export const useWorkspaces = () => {
               label: item.label || item.link_to || '',
               link_to: item.link_to,
               icon: item.icon,
+            }));
+
+            const links: WorkspaceLink[] = (raw.links ?? []).map((link) => ({
+              label: link.label || link.link_to || '',
+              link_type: link.link_type || '',
+              link_to: link.link_to || '',
+              type: link.type || '',
+              dependencies: link.dependencies || '',
             }));
 
             let widgets: WorkspaceWidget[] = [];
@@ -125,23 +173,39 @@ export const useWorkspaces = () => {
               console.error(`[useWorkspaces] Failed to parse content for "${page.name}":`, err);
             }
 
-            return { page, shortcuts, widgets };
+            const quickLists: WorkspaceQuickList[] = (raw.quick_lists ?? [])
+              .filter((q) => q.document_type)
+              .map((q) => ({
+                label: q.label || q.document_type || '',
+                document_type: q.document_type!,
+                quick_list_filter: q.quick_list_filter,
+              }));
+
+            return { page, shortcuts, widgets, links, quickLists };
           } catch (err) {
             // One workspace failing to load must not blank out every other one.
             console.error(`[useWorkspaces] Failed to load "${page.name}":`, err);
-            return { page, shortcuts: [] as WorkspaceShortcut[], widgets: [] as WorkspaceWidget[] };
+            return {
+              page,
+              shortcuts: [] as WorkspaceShortcut[],
+              widgets: [] as WorkspaceWidget[],
+              links: [] as WorkspaceLink[],
+              quickLists: [] as WorkspaceQuickList[],
+            };
           }
         })
       );
 
       setWorkspaces(
-        resolved.map(({ page, shortcuts, widgets }) => ({
+        resolved.map(({ page, shortcuts, widgets, links, quickLists }) => ({
           name: page.name,
           label: page.title || page.name,
           icon: page.icon,
           module: page.module,
           shortcuts,
           widgets,
+          links,
+          quickLists,
         }))
       );
     } catch (err) {
