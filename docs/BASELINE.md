@@ -305,3 +305,49 @@ rather than trusting code applies to manual UI verification too, not just RPC sh
   resolve to real list/form views, Sales Invoice list shows real docstatus-correct status badges
   and case-preserved document names (`ACC-SINV-2027-00003`, confirming C5 live in the UI, not
   just in a unit test).
+
+### Charts, number cards, and icons were also broken — found the same way
+
+- **Chart/Number Card widgets threw 500/417s.** `ChartWidget.tsx` always tried the nonexistent
+  `frappe.desk.desktop.get_chart_data` first (confirmed live: `ValidationError`, method has never
+  existed). `NumberCardWidget.tsx` called `number_card.get_result` with just `{name: cardName}`
+  and no `filters` arg (confirmed live: `TypeError: get_result() missing 1 required positional
+  argument: 'filters'`) — the real signature needs the **full** Number Card document (it reads
+  `doc.function`/`aggregate_function_based_on` server-side) plus explicit filters. Both rewritten
+  to `getDoc` the full document first, then call the correct RPC
+  (`dashboard_chart.dashboard_chart.get` / `number_card.get_result`) with the right shape —
+  verified live via curl before and after. `chart_type: "Report"` charts (e.g. "Sales Order
+  Trends", "Accounts Receivable Ageing") still can't render — the RPC throws `KeyError: None` for
+  them since they have no `document_type`/`based_on` to build a query from; real Desk runs the
+  linked Report client-side for these, a separate feature not built here — so these now show an
+  honest "Report-based charts aren't supported yet" instead of silently failing.
+- **Chart rendering was fabricated stacked `Progress` bars, not a chart.** Replaced with real
+  `recharts` `BarChart`/`LineChart` via the Wave-0-regenerated `ui/chart.tsx` wrapper, driven by
+  the real `{labels, datasets}` RPC response.
+- **Sidebar/workspace-header icons mostly fell back to a generic file icon**, as flagged above.
+  Root cause: hardcoded icon maps (`AppSidebar.tsx`'s ~11-entry map, `WorkspaceDashboard.tsx`'s
+  7-value emoji switch) covering only a handful of the icon names Frappe's `Icon` field actually
+  produces. Added `src/lib/icons.ts#resolveLucideIcon`, which converts Frappe's kebab-case icon
+  values (verbatim lucide icon names, e.g. `shopping-cart`, `building-2`) to lucide-react's
+  PascalCase registry key (`icons['ShoppingCart']`) — a name-format bridge covering all 1541
+  icons rather than a curated subset that's always one release behind. Both call sites now use
+  it, falling back to a generic file icon only for names lucide genuinely doesn't have.
+- **Workspace header text showed literal `&amp;`** (e.g. "Reports &amp; Masters") — the old
+  tag-stripping regex didn't decode HTML entities. Fixed via a detached `<textarea>` element
+  (`.innerHTML` in, `.value` out) to decode entities using the browser's own parser without ever
+  inserting the markup into the live DOM — deliberately not `dangerouslySetInnerHTML`, which the
+  plan's D5 flags as an XSS risk for server-editable content like this.
+- **Every workspace "card" widget showed the identical 📊 emoji.** Now reuses the existing
+  `IconForShortcut` heuristic (same one "shortcut" widgets use) keyed off the card's name, so
+  different cards get contextually different icons.
+- Live-reverified in the Selling workspace (chart + 3 number cards + card widgets, real data):
+  sidebar and header icons now render as real, varied lucide icons; "Reports & Masters" renders
+  the decoded `&`; the Report-type "Sales Order Trends" chart shows the honest unsupported state;
+  "Total Sales Amount" number card shows a real fetched `0.00` (verified via curl against its
+  underlying doc: Sum of `base_rounded_total` on submitted Sales Orders this quarter — genuinely
+  zero, not a swallowed error); "Sales Orders" and "Average Order Value" number cards correctly
+  show `--` with a clear console error, because those exact names don't exist in this instance's
+  `Number Card` doctype (it has "Sales Orders to Bill"/"to Deliver" and "Average Order Values"
+  instead) — stale/mismatched workspace fixture content in this Frappe instance, not a frontend
+  bug. Typecheck, all 99 unit tests, and the lint-ratchet gate (`59`/`55`, unchanged) stayed green
+  throughout.
