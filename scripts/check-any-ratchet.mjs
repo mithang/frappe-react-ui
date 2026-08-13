@@ -7,12 +7,12 @@
 
 import { execFileSync } from 'node:child_process';
 
-// Recorded 2026-08-13, most recently after typing SmartForm.tsx during the Wave 2A form-engine
-// rewrite (see docs/BASELINE.md). Lower only, and only when the drop is genuine (a real fix),
-// not by excluding files from lint's scope.
+// Recorded 2026-08-13, most recently after the Wave 2B list-engine rewrite (see
+// docs/BASELINE.md). Lower only, and only when the drop is genuine (a real fix), not by
+// excluding files from lint's scope.
 const BASELINES = {
-  totalErrors: 70,
-  noExplicitAny: 63,
+  totalErrors: 62,
+  noExplicitAny: 55,
 };
 
 function run() {

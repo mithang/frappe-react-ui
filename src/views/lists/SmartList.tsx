@@ -7,7 +7,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import type { Document } from '@/core/types';
 
 /**
  * SmartList - SMVC-based dynamic list component
@@ -29,6 +41,18 @@ const SmartList: React.FC = () => {
 interface DefaultListProps {
     doctype: string;
 }
+
+/** Real docstatus (0/1/2), not a hardcoded "Active" regardless of state (C8). */
+const DocstatusBadge: React.FC<{ docstatus?: 0 | 1 | 2 }> = ({ docstatus }) => {
+    switch (docstatus) {
+        case 1:
+            return <Badge variant="default">Submitted</Badge>;
+        case 2:
+            return <Badge variant="destructive">Cancelled</Badge>;
+        default:
+            return <Badge variant="secondary">Draft</Badge>;
+    }
+};
 
 const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
     const navigate = useNavigate();
@@ -93,6 +117,9 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
         );
     }
 
+    // Search is client-side over just the current page — a real search should hit the server
+    // (Wave 4+ territory); scoping this to "this page" rather than claiming it searches
+    // everything is the honest interim behavior.
     const filteredData = data.filter((item) =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -112,10 +139,10 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                 title: 'Deleted',
                 description: `${doctype} "${name}" deleted successfully`,
             });
-        } catch (error: any) {
+        } catch (error) {
             toast({
                 title: 'Error',
-                description: error.message || 'Failed to delete',
+                description: error instanceof Error ? error.message : 'Failed to delete',
                 variant: 'destructive',
             });
         }
@@ -140,20 +167,23 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                 title: 'Deleted',
                 description: `${selectedItems.size} items deleted successfully`,
             });
-        } catch (error: any) {
+        } catch (error) {
             toast({
                 title: 'Error',
-                description: error.message || 'Failed to delete items',
+                description: error instanceof Error ? error.message : 'Failed to delete items',
                 variant: 'destructive',
             });
         }
     };
 
-    // Get list columns from meta
+    // Get list columns from meta — every in_list_view field is actually fetched now (C4); it
+    // used to only request name/creation/modified regardless of what this list claimed to show.
     const listFields = meta?.fields?.filter((f) => f.in_list_view) || [];
     const columns = listFields.length > 0
         ? listFields.map(f => f.fieldname)
-        : ['name', 'creation', 'modified'];
+        : ['modified'];
+
+    const totalPages = total !== null ? Math.ceil(total / pageSize) : null;
 
     return (
         <div className="p-6">
@@ -167,9 +197,25 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                 </div>
                 <div className="flex gap-2">
                     {selectedItems.size > 0 && (
-                        <Button variant="destructive" onClick={handleBulkDelete}>
-                            Delete ({selectedItems.size})
-                        </Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive">
+                                    Delete ({selectedItems.size})
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete {selectedItems.size} {doctype} record{selectedItems.size === 1 ? '' : 's'}?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This cannot be undone. This will permanently delete the selected records.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleBulkDelete}>Delete</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     )}
                     <Button onClick={handleNewDoc}>
                         New {doctype}
@@ -184,12 +230,12 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                         <div>
                             <CardTitle>All {doctype}s</CardTitle>
                             <CardDescription>
-                                {filteredData.length} of {data.length} records
+                                {total !== null ? `${total} record${total === 1 ? '' : 's'}` : 'of many'}
                             </CardDescription>
                         </div>
                         <div className="flex gap-2">
                             <Input
-                                placeholder={`Search ${doctype}...`}
+                                placeholder={`Search this page...`}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="max-w-sm"
@@ -222,7 +268,7 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                                             />
                                         </TableHead>
                                         <TableHead>Name</TableHead>
-                                        {columns.filter(c => c !== 'name').slice(0, 3).map((col) => (
+                                        {columns.filter(c => c !== 'name' && c !== 'docstatus').slice(0, 4).map((col) => (
                                             <TableHead key={col} className="capitalize">
                                                 {col.replace(/_/g, ' ')}
                                             </TableHead>
@@ -247,23 +293,38 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                                                 />
                                             </TableCell>
                                             <TableCell className="font-medium">{item.name}</TableCell>
-                                            {columns.filter(c => c !== 'name').slice(0, 3).map((col) => (
+                                            {columns.filter(c => c !== 'name' && c !== 'docstatus').slice(0, 4).map((col) => (
                                                 <TableCell key={col}>
                                                     {formatCellValue(item[col], col)}
                                                 </TableCell>
                                             ))}
                                             <TableCell>
-                                                <Badge variant="secondary">Active</Badge>
+                                                <DocstatusBadge docstatus={item.docstatus} />
                                             </TableCell>
                                             <TableCell onClick={(e) => e.stopPropagation()}>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-destructive hover:text-destructive"
-                                                    onClick={() => handleDelete(item.name)}
-                                                >
-                                                    ×
-                                                </Button>
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-destructive hover:text-destructive"
+                                                        >
+                                                            ×
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Delete {doctype} {item.name}?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This cannot be undone.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleDelete(item.name)}>Delete</AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -285,10 +346,10 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                             )}
 
                             {/* Pagination */}
-                            {total > pageSize && (
+                            {(page > 1 || (total !== null && total > pageSize)) && (
                                 <div className="flex justify-between items-center mt-4 pt-4 border-t">
                                     <span className="text-sm text-muted-foreground">
-                                        Page {page} of {Math.ceil(total / pageSize)}
+                                        Page {page}{totalPages !== null ? ` of ${totalPages}` : ' of many'}
                                     </span>
                                     <div className="flex gap-2">
                                         <Button
@@ -302,7 +363,7 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                                         <Button
                                             variant="outline"
                                             size="sm"
-                                            disabled={page >= Math.ceil(total / pageSize)}
+                                            disabled={totalPages !== null ? page >= totalPages : data.length < pageSize}
                                             onClick={() => goToPage(page + 1)}
                                         >
                                             Next
@@ -322,11 +383,11 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
 // Helper Functions
 // ============================================================================
 
-function formatCellValue(value: any, column: string): string {
+function formatCellValue(value: Document[string], column: string): string {
     if (value === null || value === undefined) return '-';
 
     if (column === 'creation' || column === 'modified') {
-        return new Date(value).toLocaleDateString();
+        return new Date(value as string).toLocaleDateString();
     }
 
     if (typeof value === 'boolean') {
