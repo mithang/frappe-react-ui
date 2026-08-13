@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { GetListArgs } from '@/core/types';
 import { getFrappeClient } from '@/lib/api/client';
+import { fetchSystemSettings } from '@/lib/format/settings';
 import { qk } from './keys';
 
 const STABLE_STALE_TIME = 5 * 60 * 1000; // 5 minutes — meta/session rarely change mid-session
@@ -16,6 +17,20 @@ export function useSession() {
     queryFn: () => getFrappeClient().getLoggedUser(),
     staleTime: STABLE_STALE_TIME,
     retry: false, // a 401 here is a normal "not logged in" state, not a transient failure
+  });
+}
+
+// Formatting defaults (date/number/currency format, first-day-of-week, timezone) — sourced from
+// a System Settings read since there is no boot RPC for this client (see
+// docs/agent-rules/frappe-api.md, "No boot RPC"). `fetchSystemSettings()` also updates the
+// module-level cache read by `getCachedSystemSettings()` for non-hook/pure-function callers
+// (e.g. formatDate/formatNumber/formatCurrency).
+export function useSystemSettings() {
+  return useQuery({
+    queryKey: qk.sysSettings(),
+    queryFn: () => fetchSystemSettings(),
+    staleTime: STABLE_STALE_TIME,
+    retry: false,
   });
 }
 

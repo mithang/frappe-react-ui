@@ -19,6 +19,7 @@ import {
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { formatDate } from '@/lib/format/formatDate';
 import type { Document } from '@/core/types';
 
 /**
@@ -387,7 +388,7 @@ function formatCellValue(value: Document[string], column: string): string {
     if (value === null || value === undefined) return '-';
 
     if (column === 'creation' || column === 'modified') {
-        return new Date(value as string).toLocaleDateString();
+        return formatDate(value);
     }
 
     if (typeof value === 'boolean') {

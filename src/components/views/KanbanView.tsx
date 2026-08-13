@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatDate } from '@/lib/format/formatDate';
 import { Link } from 'react-router-dom';
 
 interface KanbanViewProps {
@@ -79,7 +80,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1 text-[10px] text-muted-foreground">
-                      Modified: {docModified ? new Date(docModified).toLocaleDateString() : '-'}
+                      Modified: {docModified ? formatDate(docModified) : '-'}
                     </CardContent>
                   </Card>
                 );

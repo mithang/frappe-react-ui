@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { getFrappeApp } from '@/lib/frappe';
+import { formatNumber } from '@/lib/format/formatNumber';
 import { BarChart3Icon } from 'lucide-react';
 
 interface ChartProps {
@@ -82,7 +83,7 @@ export function ChartWidget({ chartName }: ChartProps) {
                     <span className="text-muted-foreground font-medium">
                       {chartData.labels[index] || `Item ${index + 1}`}
                     </span>
-                    <span className="font-semibold">{value.toLocaleString()}</span>
+                    <span className="font-semibold">{formatNumber(value)}</span>
                   </div>
                   <Progress value={percentage} className="h-2" />
                 </div>
