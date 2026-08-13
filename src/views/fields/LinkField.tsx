@@ -122,14 +122,14 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
                         {!loading && options.map((option) => (
                             <CommandItem
                                 key={option.value}
-                                value={option.value}
-                                onSelect={(currentValue) => {
-                                    // cmdk lowercases value in onSelect. Map back to exact original casing!
-                                    const matched = options.find(
-                                        (opt) => opt.value.toLowerCase() === currentValue.toLowerCase()
-                                    );
-                                    const selectedVal = matched ? matched.value : option.value;
-                                    onChange(selectedVal === value ? "" : selectedVal);
+                                value={option.value.toLowerCase()}
+                                onSelect={() => {
+                                    // Always set — clicking the already-selected option must not
+                                    // clear it. It previously toggled to "" here, which silently
+                                    // wiped fields that arrive pre-filled (e.g. Company, set by a
+                                    // doctype's own client script on load) the moment a user
+                                    // clicked the one visible/highlighted option to confirm it.
+                                    onChange(option.value);
                                     setOpen(false);
                                 }}
                             >
