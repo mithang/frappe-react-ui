@@ -260,3 +260,48 @@ Don't read a green gate here as "the app works" in full; it means forms and list
 submit/cancel/amend/delete/paginate for real against a real bench, server Client Scripts and
 downstream-app extensions actually load, dates/numbers respect the bench's own System Settings,
 and clean forms pick up remote changes live when same-origin.
+
+## Post-launch fixes (2026-08-13) — found by actually looking at the running app
+
+Every automated gate (typecheck, 99 unit tests, both E2E specs) was green through all of Wave
+0–4A, and the app still had an empty sidebar and 404ing navigation links until it was opened in a
+browser and clicked through. None of this was caught by any test — a reminder that "gates green"
+and "verified live" are not the same claim, and the plan's own emphasis on checking a live bench
+rather than trusting code applies to manual UI verification too, not just RPC shapes.
+
+- **Sidebar was completely empty.** `useWorkspaces.ts` called
+  `frappe.desk.desktop.get_workspace_sidebar_items` — a method that has never existed on any
+  Frappe version (confirmed live: `AttributeError: module 'frappe.desk.desktop' has no attribute
+  'get_workspace_sidebar_items'`). The catch block only logged the error, so it failed silently
+  into an empty list. Rewritten to fetch real `Workspace` records
+  (`frappe.client.get_list`, top-level/public only) plus each workspace's `sidebar_items` child
+  table via `getDoc` — chosen over querying `Workspace Sidebar Item` directly via `get_list`
+  after discovering LIVE that direct child-doctype list queries silently drop fields and return
+  garbage on this Frappe build (`getdoc`/`frappe.client.get`, which fetch the whole parent
+  document, don't have that problem). `content` (dashboard widgets) comes along for free in the
+  same request, restoring `WorkspaceDashboard.tsx`'s existing widget rendering rather than
+  dropping it.
+- **Every sidebar/dashboard navigation link 404'd.** Five separate places (`AppSidebar.tsx`,
+  `Dashboard.tsx` ×3, `CalendarView.tsx`, `KanbanView.tsx`) built links as `/app/list/<doctype>`
+  or `/app/form/<doctype>/<name>` — a routing convention this app never actually used (its real
+  routes, from `src/routes.tsx`, are `/doctype/:doctype` and `/doctype/:doctype/:name`). All five
+  fixed to the real paths. `CommandPalette.tsx`'s similar-looking `/app/...` handling was correct
+  as-is — it's translating incoming Frappe global-search routes into this app's real ones, not
+  generating a broken link itself.
+- **Extension discovery (3C) 403'd on every app boot.** `discoverAndInstallExtensions()` was
+  wired into `init.ts`'s unconditional boot-time registrations, which run before login.
+  `frappe.utils.change_log.get_versions` isn't guest-accessible, so every call failed with a
+  misleading `PermissionError: "...is not whitelisted"` — `is_whitelisted()`'s guest-check and
+  its genuinely-not-whitelisted-at-all check share one error string, which is what made this look
+  like a permissions bug instead of a boot-timing bug. Moved to `AuthContext.tsx`, firing once
+  per successful session (on existing-session restore and on fresh login), not at raw app boot.
+- Live-reverified after all four fixes: full E2E suite green (one test's own selector,
+  `getByRole('button', { name: 'Next' })`, needed `exact: true` once the sidebar started
+  rendering a real "ERPNext Settings" workspace whose name substring-matches "Next" — a case of a
+  test being too loose while the UI was empty, not a real bug), sidebar populated with real
+  workspace names and correct icons is still a known gap (Frappe's `Icon` field uses lucide-style
+  names like `house`/`hammer`/`wallet`; `AppSidebar.tsx`'s icon map only covers a handful and
+  falls back to a generic file icon for the rest — cosmetic, not functional), navigation links
+  resolve to real list/form views, Sales Invoice list shows real docstatus-correct status badges
+  and case-preserved document names (`ACC-SINV-2027-00003`, confirming C5 live in the UI, not
+  just in a unit test).

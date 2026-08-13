@@ -147,8 +147,9 @@ class FrappeClientImpl implements FrappeClient {
 
     // compress() early-returns the bare input when the result set is empty, so `keys`/`values`
     // may simply be absent rather than present-but-empty — guard it (verified crash source).
-    const keys = listResult?.keys ?? [];
-    const values = listResult?.values ?? [];
+    const isEmptyResult = Array.isArray(listResult);
+    const keys = isEmptyResult ? [] : (listResult?.keys ?? []);
+    const values = isEmptyResult ? [] : (listResult?.values ?? []);
     const rows = values.map((row) => {
       const record: Record<string, unknown> = {};
       keys.forEach((key, i) => (record[key] = row[i]));

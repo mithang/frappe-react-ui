@@ -25,7 +25,9 @@ test('list pagination advances past page 1 with real in_list_view columns', asyn
 
   const firstPageNames = await page.locator('table tbody tr td:nth-child(2)').allTextContents();
 
-  await page.getByRole('button', { name: 'Next' }).click();
+  // Exact match — the sidebar's real "ERPNext Settings" workspace name substring-matches "Next"
+  // too now that it's populated with live data instead of being empty.
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText(/^Page 2 of \d+$/)).toBeVisible({ timeout: 15_000 });
 
   const secondPageNames = await page.locator('table tbody tr td:nth-child(2)').allTextContents();

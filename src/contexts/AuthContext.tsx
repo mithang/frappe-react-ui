@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getFrappeApp, initializeFrappe, STORAGE_KEY_URL } from '@/lib/frappe';
+import { discoverAndInstallExtensions } from '@/core/registry/discoverExtensions';
 
 interface User {
   name: string;
@@ -136,6 +137,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Check for existing session on startup
     checkAuth();
   }, []);
+
+  // Extension discovery (3C) needs an authenticated session — its RPCs (e.g.
+  // frappe.utils.change_log.get_versions) aren't guest-accessible, and calling it at raw app
+  // boot (before login) 403s every time. Runs once per successful session, not on every re-render.
+  const extensionsDiscoveredRef = useRef(false);
+  useEffect(() => {
+    if (user && !extensionsDiscoveredRef.current) {
+      extensionsDiscoveredRef.current = true;
+      discoverAndInstallExtensions();
+    }
+    if (!user) {
+      extensionsDiscoveredRef.current = false;
+    }
+  }, [user]);
 
   const value: AuthContextType = {
     user,

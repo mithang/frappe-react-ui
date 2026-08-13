@@ -115,7 +115,7 @@ export function AppSidebar() {
                   <CollapsibleContent>
                     <div className="mt-1 ml-4 pl-4 border-l-2 border-sidebar-accent/30 space-y-1">
                       {workspace.shortcuts.map((shortcut) => {
-                        const targetPath = shortcut.link_to ? `/app/list/${shortcut.link_to}` : '/';
+                        const targetPath = shortcut.link_to ? `/doctype/${shortcut.link_to}` : '/';
                         const isActive = location.pathname === targetPath;
                         const SubIcon = getIcon(shortcut.icon);
 

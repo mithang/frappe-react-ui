@@ -13,7 +13,6 @@ import { DocTypeRegistry } from '@/core/registry/DocTypeRegistry';
 import { FieldRegistry } from '@/core/registry/FieldRegistry';
 import { ScriptRegistry, registerClientScript } from '@/core/registry/ScriptRegistry';
 import { EventBus } from '@/core/eventbus/EventBus';
-import { discoverAndInstallExtensions } from '@/core/registry/discoverExtensions';
 
 let initialized = false;
 
@@ -27,15 +26,16 @@ interface Registration {
  * (e.g. 1C's NavRegistry/RouteRegistry/CommandRegistry/WidgetRegistry) adds one entry instead of
  * editing initializeFramework's body. A failure in one registration is isolated — see below —
  * so one broken module can't take the whole framework down before it starts.
+ *
+ * Extension discovery (discoverAndInstallExtensions, 3C) deliberately does NOT live here: this
+ * runs at raw app boot, before login. Its RPCs (e.g. frappe.utils.change_log.get_versions) are
+ * not guest-accessible, so calling it this early always 403s with a misleading "not whitelisted"
+ * message (is_whitelisted's guest check and its "genuinely not whitelisted" check share one error
+ * string) until the user has authenticated — confirmed live. It's called from AuthContext.tsx
+ * instead, once `checkAuth()`/`login()` actually establish a session.
  */
 const registrations: Registration[] = [
     { name: 'field-renderers', register: registerDefaultFieldRenderers },
-    {
-        name: 'discover-extensions',
-        register: async () => {
-            await discoverAndInstallExtensions();
-        },
-    },
 ];
 
 /**
