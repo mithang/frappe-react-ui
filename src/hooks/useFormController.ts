@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useStore, type StoreApi } from 'zustand';
 import type { Document, DocTypeMeta } from '@/core/types';
 import { ScriptRegistry } from '@/core/registry/ScriptRegistry';
-import { useDocumentStore } from '@/store';
-import { DocumentModel } from '@/models/DocumentModel';
-import { FormControllerImpl, createFormController } from '@/controllers/FormController';
+import { getFrappeClient } from '@/lib/api/client';
+import { createFormStore, type FormState } from '@/store/formStore';
+import { FormControllerImpl, createFormController, createNewDocument, type DocstatusAction } from '@/controllers/FormController';
 
 interface UseFormControllerOptions {
     doctype: string;
@@ -14,6 +15,9 @@ interface UseFormControllerOptions {
 
 interface UseFormControllerReturn {
     frm: FormControllerImpl | null;
+    /** The store instance backing `frm` — pass to <FormStoreProvider> so FieldDispatcher (and
+     *  anything else rendered inside this form) reads/writes the SAME state as `frm` does. */
+    store: StoreApi<FormState> | null;
     doc: Document | null;
     meta: DocTypeMeta | null;
     isLoading: boolean;
@@ -21,7 +25,7 @@ interface UseFormControllerReturn {
     isDirty: boolean;
     errors: Record<string, string>;
     fieldOverrides: Map<string, any>;
-    save: () => Promise<void>;
+    save: (action?: DocstatusAction) => Promise<void>;
     reload: () => Promise<void>;
     getValue: <T = any>(fieldname: string) => T;
     setValue: (fieldname: string, value: any) => Promise<void>;
@@ -29,8 +33,9 @@ interface UseFormControllerReturn {
 }
 
 /**
- * useFormController - React hook for managing form state with FormController
- * Provides Frappe-like frm object for use in components
+ * useFormController — React hook wiring a FormController to a per-instance formStore (1B) and
+ * the real FrappeClient (1A). Each call creates its OWN store, so two forms mounted at once
+ * (e.g. a quick-entry dialog over a list) have fully independent state — the A1 fix.
  */
 export function useFormController(options: UseFormControllerOptions): UseFormControllerReturn {
     const { doctype, name, onSave, onError } = options;
@@ -38,63 +43,45 @@ export function useFormController(options: UseFormControllerOptions): UseFormCon
 
     const [frm, setFrm] = useState<FormControllerImpl | null>(null);
     const [meta, setMeta] = useState<DocTypeMeta | null>(null);
-    const modelRef = useRef<DocumentModel>(new DocumentModel(doctype));
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
+    const storeRef = useRef<StoreApi<FormState> | null>(null);
 
-    const {
-        currentDoc,
-        isLoading,
-        isSaving,
-        isDirty,
-        errors,
-        fieldOverrides,
-        setCurrentDoc,
-        setLoading,
-        clearErrors,
-        clearFieldOverrides,
-    } = useDocumentStore();
+    // A fresh store per (doctype, name) — never reused across a doctype/record switch.
+    if (!storeRef.current) {
+        storeRef.current = createFormStore({ name: name ?? '', doctype, docstatus: 0 });
+    }
+    const store = storeRef.current;
+    const { draft, isDirty, errors, overrides } = useStore(store, (s) => s);
 
-    // Initialize form
     useEffect(() => {
+        // A new (doctype, name) pair needs its own store — swap it before loading.
+        storeRef.current = createFormStore({ name: name ?? '', doctype, docstatus: 0 });
         let mounted = true;
 
         const init = async () => {
-            setLoading(true);
-            clearErrors();
-            clearFieldOverrides();
+            setIsLoading(true);
+            const client = getFrappeClient();
 
             try {
-                // Load metadata
-                const docMeta = await modelRef.current.getMeta();
+                const { meta: docMeta } = await client.getMeta(doctype);
                 if (!mounted) return;
                 setMeta(docMeta);
 
-                // Load or create document
-                let doc: Document;
-                if (isNew) {
-                    doc = modelRef.current.createNew(docMeta);
-                } else {
-                    doc = await modelRef.current.get(name!);
-                }
+                const doc = isNew ? createNewDocument(doctype, docMeta) : (await client.getDoc(doctype, name!)).doc;
                 if (!mounted) return;
 
-                // Create controller
-                const controller = createFormController(doc, docMeta, isNew);
+                storeRef.current!.getState().resetTo(doc);
+                const controller = createFormController(storeRef.current!, docMeta, isNew, client);
                 setFrm(controller);
-                setCurrentDoc(doc, docMeta);
 
-                // Execute onload hook
                 await ScriptRegistry.executeHook(doctype, 'onload', controller);
-
-                // Execute refresh hook
                 await ScriptRegistry.executeHook(doctype, 'refresh', controller);
-
             } catch (error: any) {
                 console.error('[useFormController] Init error:', error);
                 onError?.(error);
             } finally {
-                if (mounted) {
-                    setLoading(false);
-                }
+                if (mounted) setIsLoading(false);
             }
         };
 
@@ -103,25 +90,28 @@ export function useFormController(options: UseFormControllerOptions): UseFormCon
         return () => {
             mounted = false;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [doctype, name, isNew]);
 
-    // Save function
-    const save = useCallback(async () => {
-        if (!frm) return;
+    const save = useCallback(
+        async (action: DocstatusAction = 'Save') => {
+            if (!frm) return;
+            setIsSaving(true);
+            try {
+                await frm.save(action);
+                onSave?.(frm.doc);
+            } catch (error: any) {
+                onError?.(error);
+                throw error;
+            } finally {
+                setIsSaving(false);
+            }
+        },
+        [frm, onSave, onError]
+    );
 
-        try {
-            await frm.save();
-            onSave?.(frm.doc);
-        } catch (error: any) {
-            onError?.(error);
-            throw error;
-        }
-    }, [frm, onSave, onError]);
-
-    // Reload function
     const reload = useCallback(async () => {
         if (!frm) return;
-
         try {
             await frm.reload();
         } catch (error: any) {
@@ -129,40 +119,34 @@ export function useFormController(options: UseFormControllerOptions): UseFormCon
         }
     }, [frm, onError]);
 
-    // Get value function
-    const getValue = useCallback(<T = any>(fieldname: string): T => {
-        return currentDoc?.[fieldname] as T;
-    }, [currentDoc]);
+    const getValue = useCallback(<T = any>(fieldname: string): T => draft?.[fieldname] as T, [draft]);
 
-    // Set value function
-    const setValue = useCallback(async (fieldname: string, value: any) => {
-        if (!frm) return;
-        await frm.set_value(fieldname as keyof Document, value);
-        // Sync back to store to trigger updates in subscribed components
-        if (meta) {
-            setCurrentDoc({ ...frm.doc }, meta);
-        }
-    }, [frm, meta, setCurrentDoc]);
+    const setValue = useCallback(
+        async (fieldname: string, value: any) => {
+            if (!frm) return;
+            await frm.set_value(fieldname as keyof Document, value);
+        },
+        [frm]
+    );
 
-    // Set property function
-    const setProperty = useCallback((fieldname: string, property: string, value: any) => {
-        if (!frm) return;
-        frm.set_df_property(fieldname, property as any, value);
-        // Sync back to store if needed
-        if (meta) {
-            setCurrentDoc({ ...frm.doc }, meta);
-        }
-    }, [frm, meta, setCurrentDoc]);
+    const setProperty = useCallback(
+        (fieldname: string, property: string, value: any) => {
+            if (!frm) return;
+            frm.set_df_property(fieldname, property as any, value);
+        },
+        [frm]
+    );
 
     return {
         frm,
-        doc: currentDoc,
+        store,
+        doc: draft,
         meta,
         isLoading,
         isSaving,
         isDirty,
         errors,
-        fieldOverrides,
+        fieldOverrides: overrides,
         save,
         reload,
         getValue,

@@ -32,6 +32,7 @@ test.describe('login -> read -> write (same-site cross-origin)', () => {
     await page.locator('form').getByRole('button', { name: 'Create' }).click();
 
     // Success is judged against the server, not a toast — a toast can lie, the record can't.
+    let createdName: string | undefined;
     await expect(async () => {
       const res = await request.post(`${BENCH_ORIGIN}/api/method/frappe.client.get_list`, {
         headers: { Origin: 'http://app.localtest.me:5173', 'Content-Type': 'application/json' },
@@ -39,12 +40,29 @@ test.describe('login -> read -> write (same-site cross-origin)', () => {
       });
       const body = await res.json();
       expect(body.message?.length ?? 0).toBeGreaterThan(0);
+      createdName = body.message[0].name;
     }).toPass({ timeout: 15_000 });
 
-    // Clean up what this test wrote so re-runs stay idempotent.
+    // --- write (update): edit the just-created record through the same form + save path ---
+    const updatedMarker = `${marker}-edited`;
+    await page.goto(`/doctype/ToDo/${createdName}`);
+    await page.getByPlaceholder('Enter description').fill(updatedMarker);
+    await page.locator('form').getByRole('button', { name: 'Update' }).click();
+
+    await expect(async () => {
+      const res = await request.post(`${BENCH_ORIGIN}/api/method/frappe.client.get_value`, {
+        headers: { Origin: 'http://app.localtest.me:5173', 'Content-Type': 'application/json' },
+        data: { doctype: 'ToDo', filters: { name: createdName }, fieldname: 'description' },
+      });
+      const body = await res.json();
+      expect(body.message?.description).toBe(updatedMarker);
+    }).toPass({ timeout: 15_000 });
+
+    // Clean up what this test wrote so re-runs stay idempotent. Search by the UPDATED marker —
+    // the record's description no longer matches the original.
     const list = await request.post(`${BENCH_ORIGIN}/api/method/frappe.client.get_list`, {
       headers: { Origin: 'http://app.localtest.me:5173', 'Content-Type': 'application/json' },
-      data: { doctype: 'ToDo', filters: { description: marker } },
+      data: { doctype: 'ToDo', filters: { description: updatedMarker } },
     });
     const { message: rows } = await list.json();
     for (const row of rows ?? []) {

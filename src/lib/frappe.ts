@@ -14,6 +14,7 @@
 
 import { buildApiError } from './api/errors';
 import { withCsrfHeader } from './api/csrf';
+import { createFrappeClient } from './api/client';
 
 export interface FrappeConfig {
   url: string;
@@ -255,6 +256,9 @@ export let frappeAPI: FrappeAPI | null = null;
 export const initializeFrappe = (url?: string) => {
   const targetUrl = url || getStoredUrl();
   frappeAPI = new FrappeAPI({ url: targetUrl });
+  // Keep the new FrappeClient (src/lib/api/client.ts) pointed at the same bench — both the old
+  // shim and new-code call sites must agree on where "the bench" is.
+  createFrappeClient(targetUrl);
 
   // Store the URL for later use
   if (typeof window !== 'undefined' && url) {

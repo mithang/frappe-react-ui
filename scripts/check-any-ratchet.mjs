@@ -7,11 +7,12 @@
 
 import { execFileSync } from 'node:child_process';
 
-// Recorded 2026-08-13, post dead-code removal (W0.2/W0.13) — see docs/BASELINE.md. Lower only,
-// and only when the drop is genuine (a real fix), not by excluding files from lint's scope.
+// Recorded 2026-08-13, most recently after typing SmartForm.tsx during the Wave 2A form-engine
+// rewrite (see docs/BASELINE.md). Lower only, and only when the drop is genuine (a real fix),
+// not by excluding files from lint's scope.
 const BASELINES = {
-  totalErrors: 77,
-  noExplicitAny: 71,
+  totalErrors: 70,
+  noExplicitAny: 63,
 };
 
 function run() {

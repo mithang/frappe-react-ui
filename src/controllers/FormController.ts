@@ -1,31 +1,29 @@
 import type { Document, DocTypeMeta, DocField, FormController as IFormController } from '@/core/types';
+import type { StoreApi } from 'zustand';
+import type { FormState } from '@/store/formStore';
+import type { FrappeClient } from '@/lib/api/client';
 import { ScriptRegistry } from '@/core/registry/ScriptRegistry';
 import { EventBus } from '@/core/eventbus/EventBus';
-import { useDocumentStore } from '@/store';
-import { DocumentModel } from '@/models/DocumentModel';
+
+export type DocstatusAction = 'Save' | 'Submit' | 'Cancel' | 'Update';
 
 /**
- * FormControllerImpl - Implementation of Frappe-like form controller
- * Provides API similar to Frappe's frm object for client scripts
+ * FormControllerImpl — Frappe-like `frm` object for client scripts, now backed by a per-instance
+ * formStore (1B) instead of the old app-wide store, and the real FrappeClient (1A) instead of
+ * DocumentModel's REST calls — closing A8 (save now goes through `savedocs`: conflict detection,
+ * _server_messages, exc_type all survive) and A1 (two forms no longer share state).
  */
 export class FormControllerImpl implements IFormController {
-    private _doc: Document;
     private _meta: DocTypeMeta;
     private _isNew: boolean;
-    private _isDirty: boolean = false;
-    private model: DocumentModel;
-    private store: typeof useDocumentStore;
+    private store: StoreApi<FormState>;
+    private client: FrappeClient;
 
-    constructor(
-        doc: Document,
-        meta: DocTypeMeta,
-        isNew: boolean = false
-    ) {
-        this._doc = doc;
+    constructor(store: StoreApi<FormState>, meta: DocTypeMeta, isNew: boolean, client: FrappeClient) {
+        this.store = store;
         this._meta = meta;
         this._isNew = isNew;
-        this.model = new DocumentModel(meta.name);
-        this.store = useDocumentStore;
+        this.client = client;
     }
 
     // ============================================================================
@@ -33,7 +31,7 @@ export class FormControllerImpl implements IFormController {
     // ============================================================================
 
     get doc(): Document {
-        return this._doc;
+        return this.store.getState().draft;
     }
 
     get doctype(): string {
@@ -41,7 +39,7 @@ export class FormControllerImpl implements IFormController {
     }
 
     get docname(): string {
-        return this._doc.name;
+        return this.doc.name;
     }
 
     get meta(): DocTypeMeta {
@@ -53,7 +51,11 @@ export class FormControllerImpl implements IFormController {
     }
 
     get is_dirty(): boolean {
-        return this._isDirty;
+        return this.store.getState().isDirty;
+    }
+
+    get docstatus(): 0 | 1 | 2 {
+        return this.doc.docstatus ?? 0;
     }
 
     // ============================================================================
@@ -61,20 +63,16 @@ export class FormControllerImpl implements IFormController {
     // ============================================================================
 
     get_value<K extends keyof Document>(fieldname: K): Document[K] {
-        return this._doc[fieldname];
+        return this.doc[fieldname];
     }
 
     async set_value<K extends keyof Document>(fieldname: K, value: Document[K]): Promise<void> {
-        const oldValue = this._doc[fieldname];
+        const oldValue = this.doc[fieldname];
         if (oldValue === value) return;
 
-        this._doc = { ...this._doc, [fieldname]: value };
-        this._isDirty = true;
+        // setValue, never resetTo — marks dirty without touching errors/overrides (the C1 fix).
+        this.store.getState().setValue(fieldname as string, value);
 
-        // Update store
-        this.store.getState().updateFieldValue(fieldname as string, value);
-
-        // Emit field change event
         EventBus.emit('field:changed', {
             doctype: this.doctype,
             name: this.docname,
@@ -83,12 +81,7 @@ export class FormControllerImpl implements IFormController {
             oldValue,
         });
 
-        // Execute field change scripts
-        await ScriptRegistry.executeFieldChange(
-            this.doctype,
-            fieldname as string,
-            this
-        );
+        await ScriptRegistry.executeFieldChange(this.doctype, fieldname as string, this);
     }
 
     // ============================================================================
@@ -96,7 +89,7 @@ export class FormControllerImpl implements IFormController {
     // ============================================================================
 
     set_df_property(fieldname: string, property: keyof DocField, value: any): void {
-        this.store.getState().setFieldOverride(fieldname, property as string, value);
+        this.store.getState().setOverride(fieldname, property, value);
     }
 
     toggle_display(fieldname: string, show: boolean): void {
@@ -115,91 +108,81 @@ export class FormControllerImpl implements IFormController {
     // Form Operations
     // ============================================================================
 
-    async save(): Promise<void> {
-        const store = this.store.getState();
+    validate(): Record<string, string> {
+        const errors: Record<string, string> = {};
+        const doc = this.doc;
+        for (const field of this._meta.fields) {
+            if (field.reqd && !field.hidden) {
+                const value = doc[field.fieldname];
+                if (value === undefined || value === null || value === '') {
+                    errors[field.fieldname] = `${field.label || field.fieldname} is required`;
+                }
+            }
+        }
+        return errors;
+    }
 
+    async save(action: DocstatusAction = 'Save'): Promise<void> {
         try {
-            store.setSaving(true);
-            store.clearErrors();
-
-            // Execute validate hook
-            const validateResult = await ScriptRegistry.executeHook(
-                this.doctype,
-                'validate',
-                this
-            );
-
+            const validateResult = await ScriptRegistry.executeHook(this.doctype, 'validate', this);
             if (!validateResult) {
                 throw new Error('Validation failed');
             }
 
-            // Execute before_save hook
             await ScriptRegistry.executeHook(this.doctype, 'before_save', this);
 
-            // Validate required fields
-            const errors = this.model.validate(this._doc, this._meta);
+            const errors = this.validate();
             if (Object.keys(errors).length > 0) {
                 for (const [fieldname, error] of Object.entries(errors)) {
-                    store.setFieldError(fieldname, error);
+                    this.store.getState().setError(fieldname, error);
                 }
                 throw new Error('Required fields missing');
             }
 
-            // Save document
-            let savedDoc: Document;
-            if (this._isNew) {
-                savedDoc = await this.model.create(this._doc);
-                this._isNew = false;
-            } else {
-                savedDoc = await this.model.update(this.docname, this._doc);
-            }
+            const docToSave: Document & { __islocal?: 0 | 1 } = this._isNew
+                ? { ...this.doc, __islocal: 1 }
+                : this.doc;
 
-            this._doc = savedDoc;
-            this._isDirty = false;
-            store.setCurrentDoc(savedDoc, this._meta);
+            const { doc: savedDoc } = await this.client.saveDoc(docToSave, action);
 
-            // Execute after_save hook
-            await ScriptRegistry.executeHook(this.doctype, 'after_save', this);
+            this._isNew = false;
+            // resetTo is the ONLY thing that clears dirty/errors/overrides — a completed save
+            // qualifies (a fresh, authoritative copy of the document just arrived from the server).
+            this.store.getState().resetTo(savedDoc);
 
-            // Emit save event
-            EventBus.emit('doc:saved', {
-                doctype: this.doctype,
-                name: savedDoc.name,
-                doc: savedDoc,
-            });
+            await ScriptRegistry.executeHook(this.doctype, action === 'Submit' ? 'after_submit' : 'after_save', this);
 
-        } finally {
-            store.setSaving(false);
+            EventBus.emit('doc:saved', { doctype: this.doctype, name: savedDoc.name, doc: savedDoc });
+        } catch (error) {
+            throw error;
         }
+    }
+
+    async submit(): Promise<void> {
+        await ScriptRegistry.executeHook(this.doctype, 'before_submit', this);
+        await this.save('Submit');
+    }
+
+    async cancel(): Promise<void> {
+        await ScriptRegistry.executeHook(this.doctype, 'before_cancel', this);
+        const { doc: cancelledDoc } = await this.client.saveDoc(this.doc, 'Cancel');
+        this.store.getState().resetTo(cancelledDoc);
+        await ScriptRegistry.executeHook(this.doctype, 'after_cancel', this);
+        EventBus.emit('doc:saved', { doctype: this.doctype, name: cancelledDoc.name, doc: cancelledDoc });
     }
 
     async reload(): Promise<void> {
-        const store = this.store.getState();
+        if (this._isNew) return;
 
-        try {
-            store.setLoading(true);
+        const { doc } = await this.client.getDoc(this.doctype, this.docname);
+        this.store.getState().resetTo(doc);
 
-            if (!this._isNew) {
-                const doc = await this.model.get(this.docname);
-                this._doc = doc;
-                store.setCurrentDoc(doc, this._meta);
-            }
-
-            this._isDirty = false;
-            store.clearErrors();
-            store.clearFieldOverrides();
-
-            // Execute refresh hook
-            await ScriptRegistry.executeHook(this.doctype, 'refresh', this);
-
-        } finally {
-            store.setLoading(false);
-        }
+        await ScriptRegistry.executeHook(this.doctype, 'refresh', this);
     }
 
     refresh_fields(): void {
-        // Trigger a re-render by updating the store
-        this.store.getState().setCurrentDoc(this._doc, this._meta);
+        // No-op: zustand subscribers (useFormStore selectors) re-render on their own when the
+        // store changes — there is no separate "trigger a re-render" step needed anymore.
     }
 
     // ============================================================================
@@ -211,13 +194,42 @@ export class FormControllerImpl implements IFormController {
     }
 }
 
-/**
- * Hook to create and manage a FormController
- */
+/** Builds a new, empty document with meta-declared defaults applied (was DocumentModel.createNew). */
+export function createNewDocument(doctype: string, meta: DocTypeMeta): Document {
+    const doc: Document = { name: '', doctype, docstatus: 0 };
+    for (const field of meta.fields) {
+        if (field.default !== undefined) {
+            doc[field.fieldname] = parseFieldDefault(field);
+        }
+    }
+    return doc;
+}
+
+function parseFieldDefault(field: DocField): any {
+    const { fieldtype, default: defaultValue } = field;
+    if (defaultValue === undefined || defaultValue === null) return undefined;
+
+    switch (fieldtype) {
+        case 'Int':
+            return parseInt(defaultValue, 10) || 0;
+        case 'Float':
+        case 'Currency':
+        case 'Percent':
+            return parseFloat(defaultValue) || 0;
+        case 'Check':
+            return defaultValue === '1' || defaultValue === 1 || defaultValue === true;
+        case 'Table':
+            return [];
+        default:
+            return defaultValue;
+    }
+}
+
 export function createFormController(
-    doc: Document,
+    store: StoreApi<FormState>,
     meta: DocTypeMeta,
-    isNew: boolean = false
+    isNew: boolean,
+    client: FrappeClient
 ): FormControllerImpl {
-    return new FormControllerImpl(doc, meta, isNew);
+    return new FormControllerImpl(store, meta, isNew, client);
 }
