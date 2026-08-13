@@ -8,35 +8,8 @@ import {
 } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { 
-  ChevronRight, 
-  LayoutDashboard, 
-  Users, 
-  ShoppingCart, 
-  Package, 
-  Calculator, 
-  Target, 
-  FileText, 
-  Box, 
-  Warehouse, 
-  Clock, 
-  CreditCard 
-} from 'lucide-react';
-
-const iconMap: Record<string, React.ElementType> = {
-  home: LayoutDashboard,
-  users: Users,
-  'shopping-cart': ShoppingCart,
-  package: Package,
-  calculator: Calculator,
-  target: Target,
-  'file-text': FileText,
-  box: Box,
-  warehouse: Warehouse,
-  clock: Clock,
-  'credit-card': CreditCard,
-  dashboard: LayoutDashboard,
-};
+import { ChevronRight, FileText } from 'lucide-react';
+import { resolveLucideIcon } from '@/lib/icons';
 
 export function AppSidebar() {
   const navigate = useNavigate();
@@ -53,7 +26,7 @@ export function AppSidebar() {
   };
 
   const getIcon = (iconName?: string) => {
-    return iconMap[iconName || ''] || FileText;
+    return resolveLucideIcon(iconName, FileText);
   };
 
   return (
