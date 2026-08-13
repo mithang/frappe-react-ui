@@ -93,6 +93,10 @@ export interface DocTypeMeta {
     track_changes?: boolean;
     /** Gates whether a Data Import can target this doctype at all — checked server-side too. */
     allow_import?: FrappeBool;
+    /** "DocType State" rows — the authoritative colour for a `status` value in list/quick-list
+     *  indicators (frappe.get_indicator). Often empty: many doctypes colour status from an app
+     *  bundle's listview_settings instead, which a standalone client can't load. */
+    states?: { title: string; color?: string }[];
 }
 
 export interface Document {

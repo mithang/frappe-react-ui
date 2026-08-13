@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getFrappeClient } from '@/lib/api/client';
-import { formatDate } from '@/lib/format/formatDate';
+import { prettyDate } from '@/lib/format/prettyDate';
 import { parseFilterExpression } from '@/lib/expr/filterExpression';
 import type { DocTypeMeta, FrappeFilter } from '@/core/types';
-import { Plus, ExternalLink } from 'lucide-react';
+import { Plus, RefreshCw, ChevronRight } from 'lucide-react';
 
 interface QuickListProps {
   /** The content block's `quick_list_name` — which is the child row's LABEL, not a doctype. */
@@ -38,36 +36,73 @@ const colClassMap: Record<number, string> = {
   12: 'col-span-12',
 };
 
-function statusVariant(row: QuickListRow): { label: string; className: string } | null {
+/** Frappe indicator colour names -> badge classes, matching Desk's palette. */
+const INDICATOR_CLASSES: Record<string, string> = {
+  red: 'text-red-700 bg-red-50 border-red-200',
+  orange: 'text-orange-700 bg-orange-50 border-orange-200',
+  amber: 'text-amber-700 bg-amber-50 border-amber-200',
+  yellow: 'text-yellow-700 bg-yellow-50 border-yellow-200',
+  green: 'text-green-700 bg-green-50 border-green-200',
+  blue: 'text-blue-700 bg-blue-50 border-blue-200',
+  'light-blue': 'text-sky-700 bg-sky-50 border-sky-200',
+  purple: 'text-purple-700 bg-purple-50 border-purple-200',
+  pink: 'text-pink-700 bg-pink-50 border-pink-200',
+  gray: 'text-gray-600 bg-gray-50 border-gray-200',
+  grey: 'text-gray-600 bg-gray-50 border-gray-200',
+  black: 'text-gray-900 bg-gray-100 border-gray-300',
+};
+
+/** Heuristic fallback for doctypes that define no DocType State rows — see getIndicator. */
+function guessColour(status: string): string {
+  const s = status.toLowerCase();
+  if (['completed', 'closed', 'paid', 'active', 'success', 'approved', 'received'].some((k) => s.includes(k))) return 'green';
+  if (['cancelled', 'failed', 'rejected', 'overdue', 'error'].some((k) => s.includes(k))) return 'red';
+  if (['pending', 'open', 'to ', 'unpaid', 'draft', 'queued'].some((k) => s.includes(k))) return 'orange';
+  return 'gray';
+}
+
+/**
+ * Port of frappe.get_indicator's precedence (frappe/public/js/frappe/model/indicator.js):
+ * submittable draft/cancelled first, then the `status` field coloured by the DocType's own
+ * `states` rows.
+ *
+ * Desk has two more sources we genuinely cannot reach: workflow state, and an app bundle's
+ * `listview_settings[doctype].get_indicator` (which is where ERPNext defines Sales Invoice's
+ * Paid/Overdue colours). Verified on this bench that `states` comes back EMPTY for both ToDo and
+ * Sales Invoice, so without a fallback every badge would render an undifferentiated grey —
+ * hence guessColour, which is explicitly a heuristic, not a claim to match Desk exactly.
+ */
+function getIndicator(
+  row: QuickListRow,
+  meta: DocTypeMeta | null
+): { label: string; className: string } | null {
+  const isSubmittable = !!meta?.is_submittable;
+
+  if (isSubmittable && row.docstatus === 0) return { label: 'Draft', className: INDICATOR_CLASSES.red };
+  if (isSubmittable && row.docstatus === 2) return { label: 'Cancelled', className: INDICATOR_CLASSES.red };
+
   if (row.status) {
-    const s = String(row.status).toLowerCase();
-    if (['open', 'pending', 'overdue', 'unpaid', 'to deliver', 'draft'].some((k) => s.includes(k))) {
-      return { label: String(row.status), className: 'text-amber-700 bg-amber-50/70 border-amber-200' };
-    }
-    if (['completed', 'closed', 'paid', 'submitted', 'active'].some((k) => s.includes(k))) {
-      return { label: String(row.status), className: 'text-green-700 bg-green-50/70 border-green-200' };
-    }
-    if (['cancelled', 'failed', 'rejected'].some((k) => s.includes(k))) {
-      return { label: String(row.status), className: 'text-red-700 bg-red-50/70 border-red-200' };
-    }
-    return { label: String(row.status), className: 'text-muted-foreground bg-muted/50' };
+    const status = String(row.status);
+    const state = meta?.states?.find((s) => s.title === status);
+    const colour = state?.color ? state.color.toLowerCase().replace(/\s+/g, '-') : guessColour(status);
+    return { label: status, className: INDICATOR_CLASSES[colour] ?? INDICATOR_CLASSES.gray };
   }
-  if (row.docstatus === 1) return { label: 'Submitted', className: 'text-blue-700 bg-blue-50/70 border-blue-200' };
-  if (row.docstatus === 2) return { label: 'Cancelled', className: 'text-red-700 bg-red-50/70 border-red-200' };
+
+  if (isSubmittable && row.docstatus === 1) return { label: 'Submitted', className: INDICATOR_CLASSES.blue };
   return null;
 }
 
 /**
- * Renders a Workspace "Quick List" block. `quick_list_name` in the workspace content is the LABEL
- * of a row in the workspace's own `quick_lists` child table (doctype "Workspace Quick List"),
- * which carries the real `document_type` and `quick_list_filter` — the label is NOT a doctype.
- * This previously passed it straight to a list call as if it were one, so any quick list whose
- * label wasn't coincidentally a doctype name errored into an empty card.
+ * Renders a Workspace "Quick List" block, laid out like Desk's quick_list_widget.js: each row is
+ * the title stacked above a relative timestamp on the left, with the status badge and a chevron
+ * on the right — not a single inline row with an absolute date.
  *
- * Mirrors Desk's quick_list_widget.js: title field + status/docstatus + modified, filtered by the
- * configured filter, newest first, capped at 4 rows.
+ * `quick_list_name` in the workspace content is the LABEL of a row in that workspace's own
+ * `quick_lists` child table (doctype "Workspace Quick List"), which carries the real
+ * `document_type` and `quick_list_filter`. The label is NOT a doctype.
  */
 export function QuickListWidget({ listName, documentType, quickListFilter, col = 6 }: QuickListProps) {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<QuickListRow[]>([]);
   const [meta, setMeta] = useState<DocTypeMeta | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -91,14 +126,13 @@ export function QuickListWidget({ listName, documentType, quickListFilter, col =
       const hasStatus = docMeta.fields?.some((f) => f.fieldname === 'status');
 
       const fields = Array.from(
-        new Set(
-          [
-            'name',
-            ...(titleField && titleField !== 'name' ? [titleField] : []),
-            ...(hasStatus ? ['status', 'docstatus'] : ['docstatus']),
-            'modified',
-          ].filter(Boolean)
-        )
+        new Set([
+          'name',
+          ...(titleField && titleField !== 'name' ? [titleField] : []),
+          ...(hasStatus ? ['status'] : []),
+          'docstatus',
+          'modified',
+        ])
       );
 
       const { rows: fetched } = await client.getList<QuickListRow>({
@@ -127,62 +161,78 @@ export function QuickListWidget({ listName, documentType, quickListFilter, col =
 
   return (
     <div className={colClass}>
-      <Card className="h-full">
+      {/* min-h matches Desk's .quick-list-widget-box, so a 1-row list doesn't collapse next to a
+          full one and leave the dashboard grid ragged. */}
+      <Card className="h-full min-h-[202px] flex flex-col">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm font-semibold">{listName}</CardTitle>
+            <CardTitle className="text-sm font-semibold truncate">{listName}</CardTitle>
             {documentType && (
-              <div className="flex items-center gap-1">
-                <Button asChild variant="ghost" size="sm" className="h-7 w-7 p-0" title={`New ${documentType}`}>
-                  <Link to={`/doctype/${documentType}/new`}>
-                    <Plus className="h-3.5 w-3.5" />
-                  </Link>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-muted-foreground"
+                  title={`Add New ${documentType}`}
+                  onClick={() => navigate(`/doctype/${documentType}/new`)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
                 </Button>
-                <Button asChild variant="ghost" size="sm" className="h-7 w-7 p-0" title={`Open ${documentType} list`}>
-                  <Link to={`/doctype/${documentType}`}>
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Link>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-muted-foreground"
+                  title="Refresh List"
+                  onClick={load}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
                 </Button>
               </div>
             )}
           </div>
         </CardHeader>
-        <CardContent>
+
+        <CardContent className="flex-1 pt-0">
           {isLoading ? (
-            <div className="space-y-2">
-              {[...Array(3)].map((_, i) => (
-                <Skeleton key={i} className="h-5 w-full" />
-              ))}
-            </div>
+            <div className="text-sm text-muted-foreground py-2">Loading...</div>
           ) : error ? (
-            <div className="text-xs text-muted-foreground py-2">{error}</div>
+            <div className="text-sm text-muted-foreground py-2">{error}</div>
           ) : rows.length === 0 ? (
-            <div className="text-xs text-muted-foreground py-2">No items found</div>
+            <div className="text-sm text-muted-foreground py-2">No Data...</div>
           ) : (
-            <div className="divide-y">
+            <div className="flex flex-col">
               {rows.map((row) => {
-                const status = statusVariant(row);
+                const indicator = getIndicator(row, meta);
                 const title = (titleField && (row[titleField] as string)) || row.name;
                 return (
-                  <Link
+                  <div
                     key={row.name}
-                    to={`/doctype/${documentType}/${row.name}`}
-                    className="flex items-center justify-between gap-2 py-2 group"
+                    role="link"
+                    tabIndex={0}
+                    onClick={() => navigate(`/doctype/${documentType}/${row.name}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/doctype/${documentType}/${row.name}`);
+                      }
+                    }}
+                    className="flex items-center justify-between my-0.5 px-1.5 py-1 rounded-md cursor-pointer hover:bg-accent/60 transition-colors"
                   >
-                    <span className="text-xs font-medium truncate group-hover:text-primary transition-colors">
-                      {title}
-                    </span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {status && (
-                        <Badge variant="outline" className={`text-[10px] font-normal ${status.className}`}>
-                          {status.label}
-                        </Badge>
-                      )}
-                      <span className="text-[10px] text-muted-foreground">
-                        {row.modified ? formatDate(row.modified) : ''}
-                      </span>
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <div className="text-sm truncate" title={title}>
+                        {title}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{prettyDate(row.modified)}</div>
                     </div>
-                  </Link>
+                    {indicator && (
+                      <span
+                        className={`ml-3 shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal ${indicator.className}`}
+                      >
+                        {indicator.label}
+                      </span>
+                    )}
+                    <ChevronRight className="ml-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </div>
                 );
               })}
             </div>
