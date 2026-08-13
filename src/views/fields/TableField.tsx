@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, HelpCircle } from 'lucide-react';
 import { FieldRendererProps, DocField, DocTypeMeta } from '@/core/types';
 import { getFrappeApp } from '@/lib/frappe';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,12 @@ import {
 } from '@/components/ui/table';
 import { FieldDispatcher } from './FieldDispatcher';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 export const TableField: React.FC<FieldRendererProps<Record<string, unknown>[]>> = ({
     field,
@@ -113,8 +119,22 @@ export const TableField: React.FC<FieldRendererProps<Record<string, unknown>[]>>
                             <TableHead className="w-[40px]"></TableHead>
                             {columns.map((col) => (
                                 <TableHead key={col.fieldname} className="min-w-[120px] whitespace-nowrap">
-                                    {col.label || col.fieldname}
-                                    {!!col.reqd && <span className="text-destructive ml-1">*</span>}
+                                    <div className="flex items-center space-x-1">
+                                        <span>{col.label || col.fieldname}</span>
+                                        {!!col.reqd && <span className="text-destructive">*</span>}
+                                        {col.description && (
+                                            <TooltipProvider delayDuration={200}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
+                                                    </TooltipTrigger>
+                                                    <TooltipContent className="max-w-[250px] whitespace-normal">
+                                                        <p className="text-xs">{col.description}</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+                                    </div>
                                 </TableHead>
                             ))}
                             <TableHead className="w-[50px]"></TableHead>

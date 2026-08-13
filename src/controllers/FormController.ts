@@ -4,7 +4,7 @@ import type { FormState } from '@/store/formStore';
 import type { FrappeClient } from '@/lib/api/client';
 import { ScriptRegistry } from '@/core/registry/ScriptRegistry';
 import { EventBus } from '@/core/eventbus/EventBus';
-import { evaluateFieldVisibility } from '@/lib/expr/dependsOn';
+import { collectLayoutHiddenFields, evaluateFieldVisibility } from '@/lib/expr/dependsOn';
 
 export type DocstatusAction = 'Save' | 'Submit' | 'Cancel' | 'Update';
 
@@ -128,18 +128,22 @@ export class FormControllerImpl implements IFormController {
      * with nothing highlighted and no way to satisfy it. It also missed the inverse — fields made
      * mandatory only via `mandatory_depends_on` were never checked at all, so the server rejected
      * them later with a much worse message.
+     *
+     * The same reasoning covers a field whose own conditions pass but whose enclosing Tab/Section
+     * Break is hidden — the form drops those breaks wholesale, so the field is just as unreachable.
      */
     validate(): Record<string, string> {
         const errors: Record<string, string> = {};
         const doc = this.doc;
         const overrides = this.store.getState().overrides;
+        const layoutHidden = collectLayoutHiddenFields(this._meta.fields, doc);
 
         for (const field of this._meta.fields) {
             if (LAYOUT_FIELDTYPES.has(field.fieldtype)) continue;
 
             const effectiveField = { ...field, ...(overrides.get(field.fieldname) ?? {}) };
             const { hidden, reqd } = evaluateFieldVisibility(effectiveField, doc);
-            if (!reqd || hidden) continue;
+            if (!reqd || hidden || layoutHidden.has(field.fieldname)) continue;
 
             const value = doc[field.fieldname];
             if (value === undefined || value === null || value === '') {
@@ -225,7 +229,12 @@ export class FormControllerImpl implements IFormController {
 
 /** Builds a new, empty document with meta-declared defaults applied (was DocumentModel.createNew). */
 export function createNewDocument(doctype: string, meta: DocTypeMeta): Document {
-    const doc: Document = { name: '', doctype, docstatus: 0 };
+    // `__islocal` marks an unsaved doc, exactly as Desk does. It is not decoration: depends_on
+    // expressions read it (DocType's own "Form" tab is `eval:!doc.__islocal`, and plenty of
+    // ERPNext fields hide until first save), and without it every such expression evaluated
+    // backwards on new documents. `save()` re-stamps it on the payload, and the post-save
+    // `resetTo(savedDoc)` swaps in the server's copy, which carries no `__islocal`.
+    const doc: Document = { name: '', doctype, docstatus: 0, __islocal: 1 };
     for (const field of meta.fields) {
         if (field.default !== undefined) {
             doc[field.fieldname] = parseFieldDefault(field);

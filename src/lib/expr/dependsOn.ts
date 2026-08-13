@@ -5,7 +5,7 @@
 // a child table, never the top-level document. Callers pass whichever `doc` is the correct scope
 // for the field being evaluated — this module has no opinion on where that doc comes from.
 
-import type { Document } from '@/core/types';
+import type { DocField, Document } from '@/core/types';
 import { buildEvalScope } from './evalScope';
 
 /**
@@ -81,6 +81,38 @@ export interface FieldVisibilityState {
   hidden: boolean;
   reqd: boolean;
   readOnly: boolean;
+}
+
+/**
+ * Fieldnames that render nowhere because the Tab Break or Section Break they sit under is itself
+ * hidden — a break's `hidden`/`depends_on` governs everything up to the next break of its kind,
+ * not just its own heading.
+ *
+ * Callers deciding "can the user actually reach this field" need this ON TOP of the field's own
+ * `evaluateFieldVisibility`: a *required* field inside a hidden section is unreachable, and
+ * validating it produces exactly the unsatisfiable "Required fields missing" save that
+ * FormController.validate exists to avoid.
+ */
+export function collectLayoutHiddenFields(
+  fields: DocField[],
+  doc: Document | Record<string, unknown>
+): Set<string> {
+  const hidden = new Set<string>();
+  let tabHidden = false;
+  let sectionHidden = false;
+
+  for (const field of fields) {
+    if (field.fieldtype === 'Tab Break') {
+      tabHidden = evaluateFieldVisibility(field, doc).hidden;
+      sectionHidden = false; // a Tab Break also closes whatever section was open
+    } else if (field.fieldtype === 'Section Break') {
+      sectionHidden = evaluateFieldVisibility(field, doc).hidden;
+    } else if (field.fieldtype !== 'Column Break' && (tabHidden || sectionHidden)) {
+      hidden.add(field.fieldname);
+    }
+  }
+
+  return hidden;
 }
 
 /** Convenience wrapper resolving all three depends_on-family properties for one field at once. */

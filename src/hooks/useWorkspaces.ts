@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getFrappeClient } from '@/lib/api/client';
+import { buildSidebarTree, type SidebarNode } from '@/lib/frappe/sidebarItems';
 
 export interface WorkspaceShortcut {
   name: string;
@@ -47,6 +48,10 @@ export interface Workspace {
   links: WorkspaceLink[];
   cards: WorkspaceCardGroup[];
   quickLists: WorkspaceQuickList[];
+  /** `sidebar_items` as the nav panel renders it: top-level entries plus collapsible sections,
+   *  built by the Desk-faithful parser in lib/frappe/sidebarItems.ts. `shortcuts` remains the
+   *  older flat DocType-only view, kept for existing consumers. */
+  sidebarTree: SidebarNode[];
 }
 
 /** A "Card Break" and the Link rows it owns — the workspace `card` content block renders one. */
@@ -121,149 +126,157 @@ interface WorkspaceLinkRow {
  * plain field, free in the same request) is the existing widget-driven dashboard body that
  * WorkspaceDashboard.tsx already renders — both come from one round trip per workspace.
  *
- * Scope: public, top-level workspaces only, and only `Link` sidebar items pointing at a
- * `DocType` (the actual navigable list links) — not yet nested workspace hierarchy, private
- * per-user workspaces, Section Break grouping, or Dashboard/Report/Page/URL link types.
+ * Scope: public, top-level workspaces only — not yet nested workspace hierarchy or private
+ * per-user workspaces. Section Break grouping and every link type ARE handled now, by
+ * `buildSidebarTree` (see `sidebarTree`); `shortcuts` keeps the older DocType-only flat shape.
+ *
+ * Cached via TanStack Query because this is an N+1 (one `get_list` plus one `getDoc` per
+ * workspace — 25 on this bench) and there are several independent callers (AppSidebar, the nav
+ * panes, WorkspaceView, HomeRedirect, CommandPalette). Without a shared cache each mount refetched
+ * the lot.
  */
-export const useWorkspaces = () => {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+async function fetchWorkspaces(): Promise<Workspace[]> {
+  const client = getFrappeClient();
 
-  const loadWorkspaces = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const client = getFrappeClient();
+  const pages = await client.call<WorkspaceListRow[]>('frappe.client.get_list', {
+    doctype: 'Workspace',
+    fields: ['name', 'title', 'icon', 'module', 'parent_page', 'public', 'sequence_id'],
+    filters: { public: 1 },
+    order_by: 'sequence_id asc',
+    limit_page_length: 0,
+  });
 
-      const pages = await client.call<WorkspaceListRow[]>('frappe.client.get_list', {
-        doctype: 'Workspace',
-        fields: ['name', 'title', 'icon', 'module', 'parent_page', 'public', 'sequence_id'],
-        filters: { public: 1 },
-        order_by: 'sequence_id asc',
-        limit_page_length: 0,
-      });
+  const topLevel = pages.filter((p) => !p.parent_page);
 
-      const topLevel = pages.filter((p) => !p.parent_page);
+  const resolved = await Promise.all(
+    topLevel.map(async (page) => {
+      try {
+        const { doc } = await client.getDoc('Workspace', page.name);
+        const raw = doc as unknown as {
+          sidebar_items?: SidebarItemRow[];
+          links?: WorkspaceLinkRow[];
+          quick_lists?: WorkspaceQuickListRow[];
+          content?: string;
+        };
 
-      const resolved = await Promise.all(
-        topLevel.map(async (page) => {
-          try {
-            const { doc } = await client.getDoc('Workspace', page.name);
-            const raw = doc as unknown as {
-              sidebar_items?: SidebarItemRow[];
-              links?: WorkspaceLinkRow[];
-              quick_lists?: WorkspaceQuickListRow[];
-              content?: string;
-            };
+        const sidebarLinks = (raw.sidebar_items ?? [])
+          .filter((item) => item.type === 'Link' && item.link_type === 'DocType' && item.link_to)
+          .sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
 
-            const sidebarLinks = (raw.sidebar_items ?? [])
-              .filter((item) => item.type === 'Link' && item.link_type === 'DocType' && item.link_to)
-              .sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+        const shortcuts: WorkspaceShortcut[] = sidebarLinks.map((item, i) => ({
+          name: `${page.name}-${i}`,
+          label: item.label || item.link_to || '',
+          link_to: item.link_to,
+          icon: item.icon,
+        }));
 
-            const shortcuts: WorkspaceShortcut[] = sidebarLinks.map((item, i) => ({
-              name: `${page.name}-${i}`,
-              label: item.label || item.link_to || '',
-              link_to: item.link_to,
-              icon: item.icon,
-            }));
+        const links: WorkspaceLink[] = (raw.links ?? []).map((link) => ({
+          label: link.label || link.link_to || '',
+          link_type: link.link_type || '',
+          link_to: link.link_to || '',
+          type: link.type || '',
+          dependencies: link.dependencies || '',
+          icon: link.icon,
+          hidden: link.hidden,
+          is_query_report: link.is_query_report,
+        }));
 
-            const links: WorkspaceLink[] = (raw.links ?? []).map((link) => ({
-              label: link.label || link.link_to || '',
-              link_type: link.link_type || '',
-              link_to: link.link_to || '',
-              type: link.type || '',
-              dependencies: link.dependencies || '',
-              icon: link.icon,
-              hidden: link.hidden,
-              is_query_report: link.is_query_report,
-            }));
-
-            // `links` is FLAT: a "Card Break" row followed by the "Link" rows it owns, up to the
-            // next Card Break. That "until the next Card Break" rule is authoritative — Frappe's
-            // own build_links_table_from_card recomputes link_count exactly that way whenever the
-            // stored count is 0, which it is for most cards on this bench (all of Buying's, for
-            // instance), so the field can't be relied on. Rows before the first Card Break belong
-            // to no card and are intentionally dropped.
-            const cards: WorkspaceCardGroup[] = [];
-            for (const row of raw.links ?? []) {
-              if (row.type === 'Card Break') {
-                cards.push({ label: row.label || '', icon: row.icon, links: [] });
-              } else if (row.type === 'Link' && cards.length > 0 && !row.hidden) {
-                cards[cards.length - 1].links.push({
-                  label: row.label || row.link_to || '',
-                  link_type: row.link_type || '',
-                  link_to: row.link_to || '',
-                  type: row.type || '',
-                  dependencies: row.dependencies || '',
-                  icon: row.icon,
-                  hidden: row.hidden,
-                  is_query_report: row.is_query_report,
-                });
-              }
-            }
-
-            let widgets: WorkspaceWidget[] = [];
-            let widgetCounter = 0;
-            try {
-              const contentData = JSON.parse(raw.content || '[]') as Record<string, unknown>[];
-              widgets = contentData.map((item) => ({
-                id: String(item.id || `widget-${++widgetCounter}`),
-                type: item.type as WorkspaceWidget['type'],
-                data: item.data as WorkspaceWidget['data'],
-              }));
-            } catch (err) {
-              console.error(`[useWorkspaces] Failed to parse content for "${page.name}":`, err);
-            }
-
-            const quickLists: WorkspaceQuickList[] = (raw.quick_lists ?? [])
-              .filter((q) => q.document_type)
-              .map((q) => ({
-                label: q.label || q.document_type || '',
-                document_type: q.document_type!,
-                quick_list_filter: q.quick_list_filter,
-              }));
-
-            return { page, shortcuts, widgets, links, cards, quickLists };
-          } catch (err) {
-            // One workspace failing to load must not blank out every other one.
-            console.error(`[useWorkspaces] Failed to load "${page.name}":`, err);
-            return {
-              page,
-              shortcuts: [] as WorkspaceShortcut[],
-              widgets: [] as WorkspaceWidget[],
-              links: [] as WorkspaceLink[],
-              cards: [] as WorkspaceCardGroup[],
-              quickLists: [] as WorkspaceQuickList[],
-            };
+        // `links` is FLAT: a "Card Break" row followed by the "Link" rows it owns, up to the
+        // next Card Break. That "until the next Card Break" rule is authoritative — Frappe's
+        // own build_links_table_from_card recomputes link_count exactly that way whenever the
+        // stored count is 0, which it is for most cards on this bench (all of Buying's, for
+        // instance), so the field can't be relied on. Rows before the first Card Break belong
+        // to no card and are intentionally dropped.
+        const cards: WorkspaceCardGroup[] = [];
+        for (const row of raw.links ?? []) {
+          if (row.type === 'Card Break') {
+            cards.push({ label: row.label || '', icon: row.icon, links: [] });
+          } else if (row.type === 'Link' && cards.length > 0 && !row.hidden) {
+            cards[cards.length - 1].links.push({
+              label: row.label || row.link_to || '',
+              link_type: row.link_type || '',
+              link_to: row.link_to || '',
+              type: row.type || '',
+              dependencies: row.dependencies || '',
+              icon: row.icon,
+              hidden: row.hidden,
+              is_query_report: row.is_query_report,
+            });
           }
-        })
-      );
+        }
 
-      setWorkspaces(
-        resolved.map(({ page, shortcuts, widgets, links, cards, quickLists }) => ({
-          name: page.name,
-          label: page.title || page.name,
-          icon: page.icon,
-          module: page.module,
-          shortcuts,
-          widgets,
-          links,
-          cards,
-          quickLists,
-        }))
-      );
-    } catch (err) {
-      console.error('[useWorkspaces] Failed to load workspaces:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load workspaces');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+        let widgets: WorkspaceWidget[] = [];
+        let widgetCounter = 0;
+        try {
+          const contentData = JSON.parse(raw.content || '[]') as Record<string, unknown>[];
+          widgets = contentData.map((item) => ({
+            id: String(item.id || `widget-${++widgetCounter}`),
+            type: item.type as WorkspaceWidget['type'],
+            data: item.data as WorkspaceWidget['data'],
+          }));
+        } catch (err) {
+          console.error(`[useWorkspaces] Failed to parse content for "${page.name}":`, err);
+        }
 
-  useEffect(() => {
-    loadWorkspaces();
-  }, [loadWorkspaces]);
+        const quickLists: WorkspaceQuickList[] = (raw.quick_lists ?? [])
+          .filter((q) => q.document_type)
+          .map((q) => ({
+            label: q.label || q.document_type || '',
+            document_type: q.document_type!,
+            quick_list_filter: q.quick_list_filter,
+          }));
 
-  return { workspaces, isLoading, error, refresh: loadWorkspaces };
+        // Built from the FULL rows — buildSidebarTree keeps Section Break grouping and every
+        // link type, unlike `shortcuts` above which is the legacy DocType-only flat view.
+        const sidebarTree = buildSidebarTree(raw.sidebar_items ?? []);
+
+        return { page, shortcuts, widgets, links, cards, quickLists, sidebarTree };
+      } catch (err) {
+        // One workspace failing to load must not blank out every other one.
+        console.error(`[useWorkspaces] Failed to load "${page.name}":`, err);
+        return {
+          page,
+          shortcuts: [] as WorkspaceShortcut[],
+          widgets: [] as WorkspaceWidget[],
+          links: [] as WorkspaceLink[],
+          cards: [] as WorkspaceCardGroup[],
+          quickLists: [] as WorkspaceQuickList[],
+          sidebarTree: [] as SidebarNode[],
+        };
+      }
+    })
+  );
+
+  return resolved.map(({ page, shortcuts, widgets, links, cards, quickLists, sidebarTree }) => ({
+    name: page.name,
+    label: page.title || page.name,
+    icon: page.icon,
+    module: page.module,
+    shortcuts,
+    widgets,
+    links,
+    cards,
+    quickLists,
+    sidebarTree,
+  }));
+}
+
+/** Shared across every caller — see the N+1 note above. */
+export const WORKSPACES_QUERY_KEY = ['workspaces'] as const;
+
+export const useWorkspaces = () => {
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: WORKSPACES_QUERY_KEY,
+    queryFn: fetchWorkspaces,
+    // Workspace definitions are configuration, not transactional data; they barely change within
+    // a session, and every nav pane asks for them on mount.
+    staleTime: 5 * 60 * 1000,
+  });
+
+  return {
+    workspaces: data ?? [],
+    isLoading,
+    error: error ? (error instanceof Error ? error.message : 'Failed to load workspaces') : null,
+    refresh: refetch,
+  };
 };

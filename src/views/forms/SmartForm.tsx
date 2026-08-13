@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useFormController } from '@/hooks/useFormController';
 import { DocTypeRegistry } from '@/core/registry/DocTypeRegistry';
 import { FieldDispatcher } from '@/views/fields/FieldDispatcher';
@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Sparkles } from 'lucide-react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -19,6 +20,7 @@ import {
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { evaluateFieldVisibility } from '@/lib/expr/dependsOn';
 import type { DocField, DocTypeMeta, Document } from '@/core/types';
 import { ChartWidget } from '@/components/widgets/ChartWidget';
 import { NumberCardWidget } from '@/components/widgets/NumberCardWidget';
@@ -123,9 +125,12 @@ interface DefaultFormProps {
 
 const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name, onClose }) => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { toast } = useToast();
     const isNew = !name || name === 'new';
     const [loadError, setLoadError] = React.useState<string | null>(null);
+
+    const prefill = location.state?.prefill;
 
     const {
         frm,
@@ -141,6 +146,7 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name, onClose }) => 
     } = useFormController({
         doctype,
         name,
+        prefill,
         onSave: (savedDoc) => {
             toast({
                 title: 'Success',
@@ -325,11 +331,18 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name, onClose }) => 
                                     {isSaving ? 'Saving...' : isNew ? 'Create' : 'Update'}
                                 </Button>
                             )}
-                            {canSubmit && (
-                                <Button size="sm" onClick={handleSubmitDoc} disabled={isSaving}>
-                                    Submit
-                                </Button>
-                            )}
+                            <div className="flex gap-2">
+                                {isNew && onClose && (
+                                    <Button variant="outline" size="sm" className="hidden sm:flex border-primary/20 text-primary hover:bg-primary/5 shadow-sm" onClick={() => console.log('Invoke AI')}>
+                                        <Sparkles className="h-4 w-4 mr-1.5" /> AI Assist
+                                    </Button>
+                                )}
+                                {canSubmit && (
+                                    <Button onClick={handleSubmitDoc} variant="default" className="bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+                                        Submit
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -386,8 +399,23 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name, onClose }) => 
 // Form Content Renderer
 // ============================================================================
 
-interface FormContentProps {
-    meta: DocTypeMeta;
+/** One Section Break's worth of layout, `key`ed by the break's own (doctype-unique) fieldname. */
+interface FormSection {
+    label: string;
+    key: string;
+    hidden: boolean;
+    columns: DocField[][];
+}
+
+interface FormTab {
+    label: string;
+    key: string;
+    hidden: boolean;
+    sections: FormSection[];
+}
+
+/** Everything a section/tab renderer needs to hand down to FieldDispatcher. */
+interface FieldContext {
     doc: Document;
     errors: Record<string, string>;
     setValue: (fieldname: string, value: unknown) => void;
@@ -396,15 +424,13 @@ interface FormContentProps {
     readOnly?: boolean;
 }
 
-const PlainFields: React.FC<{
-    fields: DocField[];
-    doc: Document;
-    errors: Record<string, string>;
-    setValue: (fieldname: string, value: unknown) => void;
-    doctype: string;
-    frm: FormControllerImpl | null;
-    readOnly?: boolean;
-}> = ({ fields, doc, errors, setValue, doctype, frm, readOnly }) => (
+interface FormContentProps extends FieldContext {
+    meta: DocTypeMeta;
+}
+
+const PlainFields: React.FC<FieldContext & { fields: DocField[] }> = ({
+    fields, doc, errors, setValue, doctype, frm, readOnly,
+}) => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {fields.map((field) => (
             <FieldDispatcher
@@ -422,77 +448,69 @@ const PlainFields: React.FC<{
     </div>
 );
 
-const FormContent: React.FC<FormContentProps> = ({ meta, doc, errors, setValue, doctype, frm, readOnly }) => {
-    const { tabs, sections, fields } = groupFieldsByStructure(meta.fields);
+const TabbedSections: React.FC<FieldContext & { tabs: FormTab[] }> = ({ tabs, ...ctx }) => {
+    const [selected, setSelected] = React.useState(() => tabs[0].key);
+
+    // Tab visibility is doc-dependent (ticking "Is Child Table" on a DocType drops five tabs at
+    // once), so the open tab can vanish under the user. Radix renders NOTHING when its value
+    // matches no trigger, so fall back to the first surviving tab rather than a blank body.
+    const active = tabs.some((tab) => tab.key === selected) ? selected : tabs[0].key;
+
+    return (
+        <Tabs value={active} onValueChange={setSelected} className="w-full">
+            {/* Triggers are `whitespace-nowrap`, so a doctype with many tabs (DocType itself has
+                nine) overflowed the card instead of shrinking — clipping the last tabs out of
+                reach entirely inside a Sheet. Scroll the strip; never squash the labels. */}
+            <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent flex-nowrap overflow-x-auto">
+                {tabs.map((tab) => (
+                    <TabsTrigger
+                        key={tab.key}
+                        value={tab.key}
+                        className="shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2.5"
+                    >
+                        {tab.label}
+                    </TabsTrigger>
+                ))}
+            </TabsList>
+            {tabs.map((tab) => (
+                <TabsContent key={tab.key} value={tab.key} className="space-y-6 mt-6">
+                    {tab.sections.map((section) => (
+                        <SectionRenderer key={section.key} section={section} {...ctx} />
+                    ))}
+                </TabsContent>
+            ))}
+        </Tabs>
+    );
+};
+
+const FormContent: React.FC<FormContentProps> = ({ meta, ...ctx }) => {
+    const { doc } = ctx;
+    // Grouping now depends on `doc`, not just the meta — Tab/Section Break depends_on has to be
+    // re-evaluated whenever a value it reads changes.
+    const { tabs, sections, fields } = React.useMemo(
+        () => groupFieldsByStructure(meta.fields, doc),
+        [meta.fields, doc]
+    );
 
     // `fields` here are whatever precedes the FIRST Tab/Section Break — these must always render
     // even when tabs/sections also exist later in the doctype (bug C6: they were previously
     // dropped entirely whenever tabs.length > 0 or sections.length > 0 won the branch below).
-    const leadingFields = fields.length > 0 && (
-        <PlainFields fields={fields} doc={doc} errors={errors} setValue={setValue} doctype={doctype} frm={frm} readOnly={readOnly} />
-    );
+    const leadingFields = fields.length > 0 && <PlainFields fields={fields} {...ctx} />;
 
     // Sections declared before the first Tab Break (e.g. Journal Entry's leading "Company"/
     // "Posting Date" section) render as plain sections above the tab strip — same placement Desk
     // itself uses — not silently dropped, and not force-fit into whichever tab happens to be first.
-    const leadingSections = sections.length > 0 && (
-        <>
-            {sections.map((section, index) => (
-                <SectionRenderer
-                    key={`leading-section-${index}`}
-                    section={section}
-                    doc={doc}
-                    errors={errors}
-                    setValue={setValue}
-                    doctype={doctype}
-                    frm={frm}
-                    readOnly={readOnly}
-                />
-            ))}
-        </>
-    );
+    const renderedSections = sections.map((section) => (
+        <SectionRenderer key={section.key} section={section} {...ctx} />
+    ));
 
     // Render tabs if present
     if (tabs.length > 0) {
-        const defaultTab = tabs[0]?.label.toLowerCase().replace(/\s+/g, '-') || 'tab-0';
-
         return (
             <div className="space-y-6">
                 {leadingFields}
-                {leadingSections}
-                <Tabs defaultValue={defaultTab} className="w-full">
-                    <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent">
-                        {tabs.map((tab, index) => (
-                            <TabsTrigger
-                                key={index}
-                                value={tab.label.toLowerCase().replace(/\s+/g, '-') || `tab-${index}`}
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2.5"
-                            >
-                                {tab.label}
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
-                    {tabs.map((tab, tabIndex) => (
-                        <TabsContent
-                            key={tabIndex}
-                            value={tab.label.toLowerCase().replace(/\s+/g, '-') || `tab-${tabIndex}`}
-                            className="space-y-6 mt-6"
-                        >
-                            {tab.sections.map((section, sectionIndex) => (
-                                <SectionRenderer
-                                    key={sectionIndex}
-                                    section={section}
-                                    doc={doc}
-                                    errors={errors}
-                                    setValue={setValue}
-                                    doctype={doctype}
-                                    frm={frm}
-                                    readOnly={readOnly}
-                                />
-                            ))}
-                        </TabsContent>
-                    ))}
-                </Tabs>
+                {renderedSections}
+                <TabbedSections tabs={tabs} {...ctx} />
             </div>
         );
     }
@@ -502,41 +520,21 @@ const FormContent: React.FC<FormContentProps> = ({ meta, doc, errors, setValue, 
         return (
             <div className="space-y-6">
                 {leadingFields}
-                {sections.map((section, index) => (
-                    <SectionRenderer
-                        key={index}
-                        section={section}
-                        doc={doc}
-                        errors={errors}
-                        setValue={setValue}
-                        doctype={doctype}
-                        frm={frm}
-                        readOnly={readOnly}
-                    />
-                ))}
+                {renderedSections}
             </div>
         );
     }
 
     // No tabs or sections — just the leading (only) fields.
-    return <PlainFields fields={fields} doc={doc} errors={errors} setValue={setValue} doctype={doctype} frm={frm} readOnly={readOnly} />;
+    return <PlainFields fields={fields} {...ctx} />;
 };
 
 // ============================================================================
 // Section Renderer
 // ============================================================================
 
-interface SectionProps {
-    section: {
-        label: string;
-        columns: DocField[][];
-    };
-    doc: Document;
-    errors: Record<string, string>;
-    setValue: (fieldname: string, value: unknown) => void;
-    doctype: string;
-    frm: FormControllerImpl | null;
-    readOnly?: boolean;
+interface SectionProps extends FieldContext {
+    section: FormSection;
 }
 
 const SectionRenderer: React.FC<SectionProps> = ({ section, doc, errors, setValue, doctype, frm, readOnly }) => {
@@ -588,46 +586,69 @@ const SectionRenderer: React.FC<SectionProps> = ({ section, doc, errors, setValu
 // Helper Functions
 // ============================================================================
 
-function groupFieldsByStructure(fields: DocField[]) {
-    const groups: {
-        tabs: { label: string; sections: { label: string; columns: DocField[][] }[] }[];
-        sections: { label: string; columns: DocField[][] }[];
-        fields: DocField[];
-    } = { tabs: [], sections: [], fields: [] };
+/**
+ * A section survives only if it is visible AND still holds at least one renderable field, and a
+ * tab only if it is visible AND has at least one surviving section. Desk renders neither a hidden
+ * break nor an empty one — and without the emptiness half, DocType's own first tab ("Form", whose
+ * sole content is the Desk-only `form_builder` HTML control) opened as a completely blank body.
+ * Empty columns are pruned too, or a trailing Column Break leaves a dead grid cell.
+ */
+function pruneSections(sections: FormSection[]): FormSection[] {
+    return sections
+        .filter((section) => !section.hidden)
+        .map((section) => ({ ...section, columns: section.columns.filter((column) => column.length > 0) }))
+        .filter((section) => section.columns.length > 0);
+}
 
-    let currentTab: { label: string; sections: { label: string; columns: DocField[][] }[] } | null = null;
-    let currentSection: { label: string; columns: DocField[][] } | null = null;
+function groupFieldsByStructure(fields: DocField[], doc: Document) {
+    const tabs: FormTab[] = [];
+    const sections: FormSection[] = [];
+    const leadingFields: DocField[] = [];
+
+    let currentTab: FormTab | null = null;
+    let currentSection: FormSection | null = null;
     let currentColumnIndex = 0;
+    let breakCount = 0;
+
+    // A Section Break can appear before the FIRST Tab Break (e.g. Journal Entry's leading
+    // "Company"/"Posting Date" section) — route it to whichever bucket is active. This used to
+    // flush only when `currentTab` already existed, so that leading section (and every field in
+    // it) was silently dropped at the first Tab Break, never rendered anywhere.
+    const flushSection = () => {
+        if (!currentSection) return;
+        if (currentTab) currentTab.sections.push(currentSection);
+        else sections.push(currentSection);
+        currentSection = null;
+    };
 
     for (const field of fields) {
         if (field.fieldtype === 'Tab Break') {
-            // A Section Break can appear before the FIRST Tab Break (e.g. Journal Entry's
-            // leading "Company"/"Posting Date" section) — route it to whichever bucket is
-            // active. Previously this only flushed when `currentTab` already existed, so that
-            // leading section (and every field in it) was silently dropped at the first Tab
-            // Break, never rendered anywhere.
-            if (currentSection) {
-                if (currentTab) {
-                    currentTab.sections.push(currentSection);
-                } else {
-                    groups.sections.push(currentSection);
-                }
-                currentSection = null;
-            }
-            if (currentTab) {
-                groups.tabs.push(currentTab);
-            }
-            currentTab = { label: field.label || 'Unnamed Tab', sections: [] };
+            flushSection();
+            if (currentTab) tabs.push(currentTab);
+            currentTab = {
+                label: field.label || 'Unnamed Tab',
+                // `fieldname` is unique per doctype and stable as the doc changes, so it makes a
+                // better tab value than a slug of the label (which can collide, and which shifts
+                // identity when tabs appear/disappear). Positional fallback for the odd custom
+                // break that carries no fieldname — two of those would otherwise share a key.
+                key: field.fieldname || `tab-${breakCount++}`,
+                // Tab and Section Breaks carry depends_on like any other field — DocType's "Form"
+                // tab is `eval:!doc.__islocal`, its "Web View" tab
+                // `eval:doc.custom===0 && !doc.istable`. These were never evaluated, so tabs Desk
+                // hides were shown here regardless of doc state. The bucket is still created (and
+                // dropped at the end) so a hidden tab's fields don't leak into the previous tab.
+                hidden: evaluateFieldVisibility(field, doc).hidden,
+                sections: [],
+            };
             currentColumnIndex = 0;
         } else if (field.fieldtype === 'Section Break') {
-            if (currentSection) {
-                if (currentTab) {
-                    currentTab.sections.push(currentSection);
-                } else {
-                    groups.sections.push(currentSection);
-                }
-            }
-            currentSection = { label: field.label || '', columns: [[]] };
+            flushSection();
+            currentSection = {
+                label: field.label || '',
+                key: field.fieldname || `section-${breakCount++}`,
+                hidden: evaluateFieldVisibility(field, doc).hidden,
+                columns: [[]],
+            };
             currentColumnIndex = 0;
         } else if (field.fieldtype === 'Column Break') {
             if (currentSection) {
@@ -644,29 +665,28 @@ function groupFieldsByStructure(fields: DocField[]) {
                 currentSection.columns[currentColumnIndex].push(field);
             } else if (currentTab) {
                 if (currentTab.sections.length === 0) {
-                    currentTab.sections.push({ label: '', columns: [[]] });
+                    currentTab.sections.push({ label: '', key: `${currentTab.key}-implicit`, hidden: false, columns: [[]] });
                 }
                 const lastSection = currentTab.sections[currentTab.sections.length - 1];
                 lastSection.columns[0].push(field);
             } else {
-                groups.fields.push(field);
+                leadingFields.push(field);
             }
         }
     }
 
     // Clean up
-    if (currentSection) {
-        if (currentTab) {
-            currentTab.sections.push(currentSection);
-        } else {
-            groups.sections.push(currentSection);
-        }
-    }
-    if (currentTab) {
-        groups.tabs.push(currentTab);
-    }
+    flushSection();
+    if (currentTab) tabs.push(currentTab);
 
-    return groups;
+    return {
+        tabs: tabs
+            .filter((tab) => !tab.hidden)
+            .map((tab) => ({ ...tab, sections: pruneSections(tab.sections) }))
+            .filter((tab) => tab.sections.length > 0),
+        sections: pruneSections(sections),
+        fields: leadingFields,
+    };
 }
 
 // ============================================================================

@@ -22,7 +22,7 @@ export async function installExtension(ext: DefinedExtension): Promise<InstallRe
     return { ok: false, error };
   }
 
-  const host = createExtensionHost();
+  const host = createExtensionHost(ext.name);
   try {
     await ext.setup(host);
     console.log(`[ExtensionHost] Installed extension "${ext.name}" (apiVersion ${ext.apiVersion})`);
