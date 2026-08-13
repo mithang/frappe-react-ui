@@ -184,7 +184,12 @@ const DefaultForm: React.FC<DefaultFormProps> = ({ doctype, name, onClose }) => 
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        await save('Save');
+        try {
+            await save('Save');
+        } catch {
+            // useFormController's onError already surfaced this as a toast; rethrowing here just
+            // produced an "Uncaught (in promise)" console error on every failed/invalid save.
+        }
     };
 
     const docstatus = doc.docstatus ?? 0;
@@ -410,6 +415,7 @@ const PlainFields: React.FC<{
                 doctype={doctype}
                 error={errors[field.fieldname]}
                 frm={frm}
+                doc={doc}
                 disabled={readOnly && !field.allow_on_submit}
             />
         ))}
@@ -553,6 +559,7 @@ const SectionRenderer: React.FC<SectionProps> = ({ section, doc, errors, setValu
                             doctype={doctype}
                             error={errors[field.fieldname]}
                             frm={frm}
+                            doc={doc}
                             disabled={readOnly && !field.allow_on_submit}
                         />
                     ))}

@@ -8,6 +8,10 @@ export default defineConfig(() => {
   // what E2E or production exercise (see e2e/ and the plan's Auth & transport section, which is
   // why Playwright runs cross-origin against *.localtest.me instead of through this).
   const benchTarget = process.env.VITE_BENCH_PROXY_TARGET || "http://localhost:8000";
+  // Frappe's realtime server is a SEPARATE node process on its own port (socketio_port, default
+  // 9000) — it is not mounted under the web server. Proxying /socket.io to benchTarget just 404s
+  // on every poll, which is what the socket.io client retry storm in the console was.
+  const socketTarget = process.env.VITE_SOCKETIO_PROXY_TARGET || "http://localhost:9000";
 
   return {
     server: {
@@ -19,7 +23,7 @@ export default defineConfig(() => {
         "/api": benchTarget,
         "/assets": benchTarget,
         "/files": benchTarget,
-        "/socket.io": { target: benchTarget, ws: true },
+        "/socket.io": { target: socketTarget, ws: true },
       },
     },
     plugins: [react()].filter(Boolean),

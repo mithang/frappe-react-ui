@@ -4,8 +4,19 @@ import type { FormState } from '@/store/formStore';
 import type { FrappeClient } from '@/lib/api/client';
 import { ScriptRegistry } from '@/core/registry/ScriptRegistry';
 import { EventBus } from '@/core/eventbus/EventBus';
+import { evaluateFieldVisibility } from '@/lib/expr/dependsOn';
 
 export type DocstatusAction = 'Save' | 'Submit' | 'Cancel' | 'Update';
+
+/** Structural/presentational fieldtypes — they hold no value, so they can never be "missing". */
+const LAYOUT_FIELDTYPES = new Set<DocField['fieldtype']>([
+    'Section Break',
+    'Column Break',
+    'Tab Break',
+    'HTML',
+    'Button',
+    'Heading',
+]);
 
 /**
  * FormControllerImpl — Frappe-like `frm` object for client scripts, now backed by a per-instance
@@ -108,15 +119,31 @@ export class FormControllerImpl implements IFormController {
     // Form Operations
     // ============================================================================
 
+    /**
+     * Mirrors FieldDispatcher's own visibility/mandatory resolution exactly — same overrides, same
+     * evaluateFieldVisibility — so validation can never disagree with what's on screen. Reading
+     * the STATIC `field.reqd`/`field.hidden` here (as this used to) produced unfixable saves: a
+     * field hidden by `depends_on` but carrying `reqd: 1` blocked the save with an error attached
+     * to a control that is not rendered anywhere, so the user saw a bare "Required fields missing"
+     * with nothing highlighted and no way to satisfy it. It also missed the inverse — fields made
+     * mandatory only via `mandatory_depends_on` were never checked at all, so the server rejected
+     * them later with a much worse message.
+     */
     validate(): Record<string, string> {
         const errors: Record<string, string> = {};
         const doc = this.doc;
+        const overrides = this.store.getState().overrides;
+
         for (const field of this._meta.fields) {
-            if (field.reqd && !field.hidden) {
-                const value = doc[field.fieldname];
-                if (value === undefined || value === null || value === '') {
-                    errors[field.fieldname] = `${field.label || field.fieldname} is required`;
-                }
+            if (LAYOUT_FIELDTYPES.has(field.fieldtype)) continue;
+
+            const effectiveField = { ...field, ...(overrides.get(field.fieldname) ?? {}) };
+            const { hidden, reqd } = evaluateFieldVisibility(effectiveField, doc);
+            if (!reqd || hidden) continue;
+
+            const value = doc[field.fieldname];
+            if (value === undefined || value === null || value === '') {
+                errors[field.fieldname] = `${effectiveField.label || field.fieldname} is required`;
             }
         }
         return errors;
@@ -136,7 +163,13 @@ export class FormControllerImpl implements IFormController {
                 for (const [fieldname, error] of Object.entries(errors)) {
                     this.store.getState().setError(fieldname, error);
                 }
-                throw new Error('Required fields missing');
+                // Name the fields — a required field can sit on a collapsed section or an
+                // inactive tab, where its inline error is invisible, so "Required fields missing"
+                // alone left nothing to act on.
+                const labels = this._meta.fields
+                    .filter((f) => errors[f.fieldname])
+                    .map((f) => f.label || f.fieldname);
+                throw new Error(`Required: ${labels.join(', ')}`);
             }
 
             const docToSave: Document & { __islocal?: 0 | 1 } = this._isNew
