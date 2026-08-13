@@ -95,7 +95,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ doctype, fieldToDate
                   const rawDate = evt[fieldToDate];
                   return (
                     <div key={docName} className="p-4 border rounded-xl bg-card hover:shadow-md transition-shadow">
-                      <Link to={`/app/form/${doctype}/${docName}`} className="font-bold text-sm text-primary">
+                      <Link to={`/doctype/${doctype}/${docName}`} className="font-bold text-sm text-primary">
                         {docName}
                       </Link>
                       <p className="text-xs text-muted-foreground mt-1">

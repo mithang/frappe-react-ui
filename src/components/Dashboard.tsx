@@ -96,7 +96,7 @@ const Dashboard: React.FC = () => {
             </CardHeader>
             <div className="px-6 pb-4">
               <Link
-                to={`/app/list/${item.doctype}`}
+                to={`/doctype/${item.doctype}`}
                 className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
               >
                 View List <ArrowUpRight className="h-3 w-3" />
@@ -129,9 +129,9 @@ const Dashboard: React.FC = () => {
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3">
             {[
-              { label: 'Sales Order List', route: '/app/list/Sales Order', icon: <Briefcase className="h-4 w-4 text-blue-500" /> },
-              { label: 'Customer List', route: '/app/list/Customer', icon: <Layers className="h-4 w-4 text-purple-500" /> },
-              { label: 'Item List', route: '/app/list/Item', icon: <FileText className="h-4 w-4 text-orange-500" /> },
+              { label: 'Sales Order List', route: '/doctype/Sales Order', icon: <Briefcase className="h-4 w-4 text-blue-500" /> },
+              { label: 'Customer List', route: '/doctype/Customer', icon: <Layers className="h-4 w-4 text-purple-500" /> },
+              { label: 'Item List', route: '/doctype/Item', icon: <FileText className="h-4 w-4 text-orange-500" /> },
             ].map((action) => (
               <Link
                 key={action.label}

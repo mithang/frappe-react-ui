@@ -76,7 +76,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                   <Card key={docName} className="hover:shadow-md transition-shadow">
                     <CardHeader className="p-3 pb-1">
                       <CardTitle className="text-xs font-bold text-primary">
-                        <Link to={`/app/form/${doctype}/${docName}`}>{docName}</Link>
+                        <Link to={`/doctype/${doctype}/${docName}`}>{docName}</Link>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-1 text-[10px] text-muted-foreground">
