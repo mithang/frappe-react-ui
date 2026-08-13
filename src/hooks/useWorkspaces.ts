@@ -31,6 +31,10 @@ export interface WorkspaceLink {
   link_to: string;
   type: string;
   dependencies?: string;
+  icon?: string;
+  hidden?: 0 | 1;
+  /** Query Reports route differently from standard (doctype-bound) Reports. */
+  is_query_report?: 0 | 1;
 }
 
 export interface Workspace {
@@ -41,7 +45,15 @@ export interface Workspace {
   shortcuts: WorkspaceShortcut[];
   widgets: WorkspaceWidget[];
   links: WorkspaceLink[];
+  cards: WorkspaceCardGroup[];
   quickLists: WorkspaceQuickList[];
+}
+
+/** A "Card Break" and the Link rows it owns — the workspace `card` content block renders one. */
+export interface WorkspaceCardGroup {
+  label: string;
+  icon?: string;
+  links: WorkspaceLink[];
 }
 
 export interface WorkspaceQuickList {
@@ -85,6 +97,10 @@ interface WorkspaceLinkRow {
   link_to?: string;
   type?: string;
   dependencies?: string;
+  icon?: string;
+  hidden?: 0 | 1;
+  is_query_report?: 0 | 1;
+  link_count?: number;
 }
 
 /**
@@ -158,7 +174,34 @@ export const useWorkspaces = () => {
               link_to: link.link_to || '',
               type: link.type || '',
               dependencies: link.dependencies || '',
+              icon: link.icon,
+              hidden: link.hidden,
+              is_query_report: link.is_query_report,
             }));
+
+            // `links` is FLAT: a "Card Break" row followed by the "Link" rows it owns, up to the
+            // next Card Break. That "until the next Card Break" rule is authoritative — Frappe's
+            // own build_links_table_from_card recomputes link_count exactly that way whenever the
+            // stored count is 0, which it is for most cards on this bench (all of Buying's, for
+            // instance), so the field can't be relied on. Rows before the first Card Break belong
+            // to no card and are intentionally dropped.
+            const cards: WorkspaceCardGroup[] = [];
+            for (const row of raw.links ?? []) {
+              if (row.type === 'Card Break') {
+                cards.push({ label: row.label || '', icon: row.icon, links: [] });
+              } else if (row.type === 'Link' && cards.length > 0 && !row.hidden) {
+                cards[cards.length - 1].links.push({
+                  label: row.label || row.link_to || '',
+                  link_type: row.link_type || '',
+                  link_to: row.link_to || '',
+                  type: row.type || '',
+                  dependencies: row.dependencies || '',
+                  icon: row.icon,
+                  hidden: row.hidden,
+                  is_query_report: row.is_query_report,
+                });
+              }
+            }
 
             let widgets: WorkspaceWidget[] = [];
             let widgetCounter = 0;
@@ -181,7 +224,7 @@ export const useWorkspaces = () => {
                 quick_list_filter: q.quick_list_filter,
               }));
 
-            return { page, shortcuts, widgets, links, quickLists };
+            return { page, shortcuts, widgets, links, cards, quickLists };
           } catch (err) {
             // One workspace failing to load must not blank out every other one.
             console.error(`[useWorkspaces] Failed to load "${page.name}":`, err);
@@ -190,6 +233,7 @@ export const useWorkspaces = () => {
               shortcuts: [] as WorkspaceShortcut[],
               widgets: [] as WorkspaceWidget[],
               links: [] as WorkspaceLink[],
+              cards: [] as WorkspaceCardGroup[],
               quickLists: [] as WorkspaceQuickList[],
             };
           }
@@ -197,7 +241,7 @@ export const useWorkspaces = () => {
       );
 
       setWorkspaces(
-        resolved.map(({ page, shortcuts, widgets, links, quickLists }) => ({
+        resolved.map(({ page, shortcuts, widgets, links, cards, quickLists }) => ({
           name: page.name,
           label: page.title || page.name,
           icon: page.icon,
@@ -205,6 +249,7 @@ export const useWorkspaces = () => {
           shortcuts,
           widgets,
           links,
+          cards,
           quickLists,
         }))
       );
