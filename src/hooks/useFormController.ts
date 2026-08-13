@@ -4,6 +4,8 @@ import type { Document, DocTypeMeta } from '@/core/types';
 import { ScriptRegistry } from '@/core/registry/ScriptRegistry';
 import { loadAndRunClientScripts } from '@/lib/scripts';
 import { getFrappeClient } from '@/lib/api/client';
+import { useDocRealtime } from '@/lib/realtime/useDocRealtime';
+import { toast } from '@/hooks/use-toast';
 import { createFormStore, type FormState } from '@/store/formStore';
 import { FormControllerImpl, createFormController, createNewDocument, type DocstatusAction } from '@/controllers/FormController';
 
@@ -123,6 +125,25 @@ export function useFormController(options: UseFormControllerOptions): UseFormCon
             onError?.(error);
         }
     }, [frm, onError]);
+
+    // 4A: if someone else saves this document while it's open here, a clean form silently picks
+    // up their change; a dirty form is left alone and just told — auto-overwriting in-progress
+    // edits would be worse than doing nothing. See docs/BASELINE.md's "4A" note for the
+    // same-origin constraint this currently requires (Frappe's socket auth rejects genuinely
+    // cross-origin connections — this works via the dev proxy / any same-origin deployment).
+    useDocRealtime(doctype, isNew ? undefined : name, {
+        onRemoteChange: () => {
+            if (!isDirty) {
+                reload();
+            } else {
+                toast({
+                    title: 'Document changed elsewhere',
+                    description: `${doctype} ${name} was updated by someone else. Your unsaved changes were not overwritten — reload manually to see their changes.`,
+                    variant: 'destructive',
+                });
+            }
+        },
+    });
 
     const getValue = useCallback(<T = any>(fieldname: string): T => draft?.[fieldname] as T, [draft]);
 
