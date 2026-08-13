@@ -13,6 +13,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { CommandProvider } from "@/contexts/CommandContext";
 import { Header } from "@/components/Header";
 import { routes } from "@/routes";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 const queryClient = new QueryClient();
 
@@ -56,15 +57,17 @@ const AuthenticatedApp = () => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <AuthenticatedApp />
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
+    <ThemeProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <AuthProvider>
+            <AuthenticatedApp />
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

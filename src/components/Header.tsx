@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, Settings, LogOut } from 'lucide-react';
+import { Search, Bell, Settings, LogOut, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useCommand } from '@/contexts/CommandContext';
@@ -13,10 +13,12 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useUIStore } from '@/store/uiStore';
 
 export function Header() {
     const { toggle } = useCommand();
     const { user, logout } = useAuth();
+    const { theme, setTheme } = useUIStore();
 
     return (
         <header className="border-b h-16 flex items-center px-6 justify-between bg-background/80 backdrop-blur-md sticky top-0 z-30 w-full shadow-sm">
@@ -44,6 +46,18 @@ export function Header() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full relative text-muted-foreground"
+                      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  >
+                      {theme === 'dark' ? (
+                          <Moon className="h-5 w-5" />
+                      ) : (
+                          <Sun className="h-5 w-5" />
+                      )}
+                  </Button>
                   <Button variant="ghost" size="icon" className="rounded-full relative">
                     <Bell className="h-5 w-5 text-muted-foreground" />
                   </Button>

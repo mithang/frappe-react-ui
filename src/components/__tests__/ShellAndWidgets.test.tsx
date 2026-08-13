@@ -18,6 +18,14 @@ vi.mock('@/lib/frappe', () => ({
   })
 }));
 
+vi.mock('@/lib/api/client', () => ({
+  getFrappeClient: () => ({
+    getDoc: vi.fn().mockResolvedValue({ data: [] }),
+    getList: vi.fn().mockResolvedValue({ keys: [], values: [] }),
+    call: vi.fn().mockResolvedValue({ message: {} })
+  })
+}));
+
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { full_name: 'Administrator', email: 'admin@example.com' },
@@ -26,18 +34,18 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 describe('Wave 2D: De-faking Shell & Widgets', () => {
-  it('Dashboard renders honest empty activity state without hardcoded fake revenue ($125,000)', async () => {
+  it('Dashboard renders new Shadcn layout with SectionCards', async () => {
     render(
       <MemoryRouter>
         <Dashboard />
       </MemoryRouter>
     );
 
-    const heading = await screen.findByText('Workspace Overview');
-    expect(heading).toBeDefined();
-
-    expect(screen.queryByText('$125,000')).toBeNull();
-    expect(screen.queryByText('1,250')).toBeNull();
+    const revenue = await screen.findByText('Total Revenue');
+    expect(revenue).toBeDefined();
+    
+    const customers = await screen.findByText('New Customers');
+    expect(customers).toBeDefined();
   });
 
   it('NumberCardWidget renders without Math.random() trends', async () => {

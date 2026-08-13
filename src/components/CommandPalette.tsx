@@ -21,7 +21,8 @@ import {
     Settings,
     Box,
     Search,
-    Loader2
+    Loader2,
+    Plus
 } from 'lucide-react';
 
 interface SearchResult {
@@ -32,11 +33,17 @@ interface SearchResult {
     name?: string;
 }
 
+interface GroupedResults {
+    workspaces: SearchResult[];
+    doctypes: SearchResult[];
+    documents: SearchResult[];
+}
+
 export function CommandPalette() {
     const { open, setOpen } = useCommand();
     const [search, setSearch] = useState('');
     const debouncedSearch = useDebounce(search, 300);
-    const [results, setResults] = useState<SearchResult[]>([]);
+    const [groupedResults, setGroupedResults] = useState<GroupedResults>({ workspaces: [], doctypes: [], documents: [] });
     const [loading, setLoading] = useState(false);
 
     // Local cache for DocTypes to show when search is empty
@@ -76,7 +83,7 @@ export function CommandPalette() {
         if (debouncedSearch) {
             performGlobalSearch(debouncedSearch);
         } else {
-            setResults([]);
+            setGroupedResults({ workspaces: [], doctypes: [], documents: [] });
         }
     }, [debouncedSearch]);
 
@@ -101,46 +108,83 @@ export function CommandPalette() {
     const performGlobalSearch = async (txt: string) => {
         setLoading(true);
         console.log('Performing global search for:', txt);
+        
         try {
-            // Use Frappe's global search API
-            const response = await frappe.call('frappe.search.search', {
-                txt: txt,
-            });
-            console.log('Search response:', response);
+            const lowerTxt = txt.toLowerCase();
+            
+            // 1. Workspaces (Client-side)
+            const matchedWorkspaces = (workspaces || [])
+                .filter(ws => ws.label.toLowerCase().includes(lowerTxt) || ws.name.toLowerCase().includes(lowerTxt))
+                .map(ws => ({
+                    value: ws.label,
+                    description: 'Workspace',
+                    route: `/workspace/${ws.name}`
+                }));
 
-            let searchResults: SearchResult[] = [];
-            if (response && response.results) {
-                searchResults = response.results;
-            } else if (Array.isArray(response)) {
-                searchResults = response;
-            } else if (response.message) {
-                searchResults = response.message;
-            }
-
-            setResults(searchResults);
-
-            // Fallback: If no results, search DocTypes locally/remotely
-            if (searchResults.length === 0) {
-                const docTypeResponse = await frappe.call('frappe.client.get_list', {
+            // Prepare parallel remote calls
+            const searchCalls = [
+                // 2. DocTypes (Remote)
+                frappe.call('frappe.client.get_list', {
                     doctype: 'DocType',
                     filters: [['name', 'like', `%${txt}%`], ['istable', '=', 0]],
                     fields: ['name', 'module'],
                     limit_page_length: 5
-                });
-                if (docTypeResponse && docTypeResponse.message) {
-                    const fallbackResults = docTypeResponse.message.map((d: any) => ({
-                        value: d.name,
+                }).catch(e => {
+                    console.error('DocType search failed', e);
+                    return { message: [] };
+                }),
+                
+                // 3. Global Documents (Remote)
+                frappe.call('frappe.search.search', {
+                    txt: txt,
+                }).catch(e => {
+                    console.error('Global search failed', e);
+                    return { results: [] };
+                })
+            ];
+
+            const [docTypeResponse, globalSearchResponse] = await Promise.all(searchCalls);
+
+            // Process DocTypes
+            const matchedDocTypes: SearchResult[] = [];
+            if (docTypeResponse && docTypeResponse.message) {
+                docTypeResponse.message.forEach((d: any) => {
+                    matchedDocTypes.push({
+                        value: `${d.name} List`,
                         description: `DocType in ${d.module}`,
-                        route: `app/doctype/${d.name}`,
+                        route: `/doctype/${d.name}`,
                         doctype: 'DocType',
                         name: d.name
-                    })) as SearchResult[];
-                    setResults(prev => [...prev, ...fallbackResults]);
-                }
+                    });
+                    matchedDocTypes.push({
+                        value: `New ${d.name}`,
+                        description: `Create a new ${d.name}`,
+                        route: `/doctype/${d.name}/new`,
+                        doctype: 'DocType',
+                        name: d.name
+                    });
+                });
             }
+
+            // Process Global Documents
+            let matchedDocuments: SearchResult[] = [];
+            if (globalSearchResponse && globalSearchResponse.results) {
+                matchedDocuments = globalSearchResponse.results;
+            } else if (Array.isArray(globalSearchResponse)) {
+                matchedDocuments = globalSearchResponse;
+            } else if (globalSearchResponse && globalSearchResponse.message) {
+                matchedDocuments = globalSearchResponse.message;
+            }
+
+            setGroupedResults({
+                workspaces: matchedWorkspaces,
+                doctypes: matchedDocTypes,
+                documents: matchedDocuments
+            });
 
         } catch (e) {
             console.error('Search failed', e);
+            setGroupedResults({ workspaces: [], doctypes: [], documents: [] });
         } finally {
             setLoading(false);
         }
@@ -228,28 +272,79 @@ export function CommandPalette() {
                     </>
                 )}
 
-                {!loading && search !== '' && results.length === 0 && (
+                {!loading && search !== '' && 
+                 groupedResults.workspaces.length === 0 && 
+                 groupedResults.doctypes.length === 0 && 
+                 groupedResults.documents.length === 0 && (
                     <CommandEmpty>No results found.</CommandEmpty>
                 )}
 
-                {!loading && search !== '' && results.length > 0 && (
-                    <CommandGroup heading="Global Search Results">
-                        {results.map((result, index) => (
-                            <CommandItem
-                                key={index}
-                                onSelect={() => handleSelect(result)}
-                                value={result.value}
-                            >
-                                <Search className="mr-2 h-4 w-4 text-muted-foreground" />
-                                <div className="flex flex-col">
-                                    <span>{result.value}</span>
-                                    {result.description && (
-                                        <span className="text-xs text-muted-foreground">{result.description}</span>
-                                    )}
-                                </div>
-                            </CommandItem>
-                        ))}
-                    </CommandGroup>
+                {!loading && search !== '' && (
+                    <>
+                        {groupedResults.workspaces.length > 0 && (
+                            <CommandGroup heading="Workspaces">
+                                {groupedResults.workspaces.map((result, index) => (
+                                    <CommandItem
+                                        key={`ws-${index}`}
+                                        onSelect={() => handleSelect(result)}
+                                        value={`ws-${result.value}`}
+                                    >
+                                        <Box className="mr-2 h-4 w-4 text-muted-foreground" />
+                                        <div className="flex flex-col">
+                                            <span>{result.value}</span>
+                                            {result.description && (
+                                                <span className="text-xs text-muted-foreground">{result.description}</span>
+                                            )}
+                                        </div>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        )}
+
+                        {groupedResults.doctypes.length > 0 && (
+                            <CommandGroup heading="DocTypes & Actions">
+                                {groupedResults.doctypes.map((result, index) => (
+                                    <CommandItem
+                                        key={`dt-${index}`}
+                                        onSelect={() => handleSelect(result)}
+                                        value={`dt-${result.value}`}
+                                    >
+                                        {result.value.startsWith('New ') ? (
+                                            <Plus className="mr-2 h-4 w-4 text-primary" />
+                                        ) : (
+                                            <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
+                                        )}
+                                        <div className="flex flex-col">
+                                            <span>{result.value}</span>
+                                            {result.description && (
+                                                <span className="text-xs text-muted-foreground">{result.description}</span>
+                                            )}
+                                        </div>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        )}
+
+                        {groupedResults.documents.length > 0 && (
+                            <CommandGroup heading="Documents">
+                                {groupedResults.documents.map((result, index) => (
+                                    <CommandItem
+                                        key={`doc-${index}`}
+                                        onSelect={() => handleSelect(result)}
+                                        value={`doc-${result.value}`}
+                                    >
+                                        <Search className="mr-2 h-4 w-4 text-muted-foreground" />
+                                        <div className="flex flex-col">
+                                            <span>{result.value}</span>
+                                            {result.description && (
+                                                <span className="text-xs text-muted-foreground">{result.description}</span>
+                                            )}
+                                        </div>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        )}
+                    </>
                 )}
 
             </CommandList>
