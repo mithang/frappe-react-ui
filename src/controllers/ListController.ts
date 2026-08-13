@@ -1,11 +1,11 @@
-import type { Document, DocTypeMeta } from '@/core/types';
+import type { Document, DocTypeMeta, FrappeFilter } from '@/core/types';
 import { EventBus } from '@/core/eventbus/EventBus';
-import { DocumentModel } from '@/models/DocumentModel';
+import { getFrappeClient } from '@/lib/api/client';
 
 export interface ListFilter {
     fieldname: string;
     operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'like' | 'not like' | 'in' | 'not in';
-    value: any;
+    value: unknown;
 }
 
 export interface ListOptions {
@@ -19,7 +19,9 @@ export interface ListOptions {
 
 export interface ListState {
     data: Document[];
-    total: number;
+    /** null means the backend hit its statement timeout — genuinely unknown, not zero (C3). */
+    total: number | null;
+    hasMore: boolean;
     page: number;
     pageSize: number;
     isLoading: boolean;
@@ -27,22 +29,22 @@ export interface ListState {
 }
 
 /**
- * ListController - Controller for list views
- * Manages list data, pagination, filtering, and sorting
+ * ListController — real `reportview.get` + separate `get_count` (closes C3: pagination could
+ * never advance past page 1 because `total` was `data.length`), fetching every `in_list_view`
+ * column instead of just name/creation/modified (closes C4).
  */
 export class ListController {
     private doctype: string;
     private meta: DocTypeMeta | null = null;
-    private model: DocumentModel;
     private state: ListState;
     private subscribers: Set<(state: ListState) => void> = new Set();
 
     constructor(doctype: string) {
         this.doctype = doctype;
-        this.model = new DocumentModel(doctype);
         this.state = {
             data: [],
-            total: 0,
+            total: null,
+            hasMore: false,
             page: 1,
             pageSize: 20,
             isLoading: false,
@@ -67,9 +69,7 @@ export class ListController {
 
     subscribe(callback: (state: ListState) => void): () => void {
         this.subscribers.add(callback);
-        // Immediately call with current state
         callback(this.state);
-        // Return unsubscribe function
         return () => this.subscribers.delete(callback);
     }
 
@@ -83,9 +83,17 @@ export class ListController {
 
     async loadMeta(): Promise<DocTypeMeta> {
         if (!this.meta) {
-            this.meta = await this.model.getMeta();
+            const { meta } = await getFrappeClient().getMeta(this.doctype);
+            this.meta = meta;
         }
         return this.meta;
+    }
+
+    /** Every `in_list_view` field, plus `name`/`docstatus`, which the list UI always needs
+     *  (row key, and the real docstatus-based status badge — C8) regardless of DocType config. */
+    private defaultListFields(): string[] {
+        const inListView = (this.meta?.fields ?? []).filter((f) => f.in_list_view).map((f) => f.fieldname);
+        return Array.from(new Set(['name', 'docstatus', 'modified', ...inListView]));
     }
 
     async load(options: ListOptions = {}): Promise<void> {
@@ -94,61 +102,45 @@ export class ListController {
         this.setState({ isLoading: true, error: null });
 
         try {
-            // Ensure meta is loaded
             await this.loadMeta();
 
-            // Build default fields from meta
-            const defaultFields = ['name', 'creation', 'modified'];
-            if (this.meta?.title_field) {
-                defaultFields.push(this.meta.title_field);
-            }
+            const frappeFilters: FrappeFilter[] | undefined = filters?.map((f) => [f.fieldname, f.operator, f.value]);
 
-            // Convert filters to Frappe format
-            const frappeFilters = filters?.map((f) => [f.fieldname, f.operator, f.value]);
-
-            const data = await this.model.list({
-                fields: fields || defaultFields,
+            const { rows, totalCount, hasMore } = await getFrappeClient().getList<Document>({
+                doctype: this.doctype,
+                fields: fields || this.defaultListFields(),
                 filters: frappeFilters,
-                limit_start: (page - 1) * pageSize,
-                limit_page_length: pageSize,
-                order_by: orderBy ? `${orderBy} ${orderDir || 'desc'}` : undefined,
+                orderBy: orderBy ? `${orderBy} ${orderDir || 'desc'}` : undefined,
+                start: (page - 1) * pageSize,
+                pageLength: pageSize,
             });
 
             this.setState({
-                data,
+                data: rows.map((row) => ({ ...row, doctype: this.doctype })),
                 page,
                 pageSize,
-                total: data.length, // Note: Frappe doesn't return total in basic API
+                total: totalCount,
+                hasMore,
                 isLoading: false,
             });
-
-        } catch (error: any) {
+        } catch (error) {
             this.setState({
-                error: error.message || 'Failed to load data',
+                error: error instanceof Error ? error.message : 'Failed to load data',
                 isLoading: false,
             });
         }
     }
 
     async refresh(): Promise<void> {
-        await this.load({
-            page: this.state.page,
-            pageSize: this.state.pageSize,
-        });
+        await this.load({ page: this.state.page, pageSize: this.state.pageSize });
     }
 
     async goToPage(page: number): Promise<void> {
-        await this.load({
-            page,
-            pageSize: this.state.pageSize,
-        });
+        await this.load({ page, pageSize: this.state.pageSize });
     }
 
     async setPageSize(pageSize: number): Promise<void> {
-        await this.load({
-            page: 1,
-            pageSize,
-        });
+        await this.load({ page: 1, pageSize });
     }
 
     // ============================================================================
@@ -156,25 +148,17 @@ export class ListController {
     // ============================================================================
 
     async delete(name: string): Promise<void> {
-        await this.model.delete(name);
-
-        // Emit delete event
-        EventBus.emit('doc:deleted', {
-            doctype: this.doctype,
-            name,
-        });
-
-        // Refresh list
+        await getFrappeClient().deleteDoc(this.doctype, name);
+        EventBus.emit('doc:deleted', { doctype: this.doctype, name });
         await this.refresh();
     }
 
+    /** One batch of parallel requests, not N sequential round trips (closes half of C10). */
     async deleteMultiple(names: string[]): Promise<void> {
+        const client = getFrappeClient();
+        await Promise.all(names.map((name) => client.deleteDoc(this.doctype, name)));
         for (const name of names) {
-            await this.model.delete(name);
-            EventBus.emit('doc:deleted', {
-                doctype: this.doctype,
-                name,
-            });
+            EventBus.emit('doc:deleted', { doctype: this.doctype, name });
         }
         await this.refresh();
     }
@@ -192,9 +176,6 @@ export class ListController {
     }
 }
 
-/**
- * Factory function to create ListController instances
- */
 export function createListController(doctype: string): ListController {
     return new ListController(doctype);
 }

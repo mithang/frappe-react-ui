@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ListController, createListController, ListState } from '@/controllers/ListController';
+import { ListController, createListController, type ListState } from '@/controllers/ListController';
 import type { DocTypeMeta } from '@/core/types';
 
 interface UseListControllerOptions {
@@ -19,7 +19,7 @@ interface UseListControllerReturn extends ListState {
 }
 
 /**
- * useListController - React hook for managing list views
+ * useListController — React hook for managing list views
  */
 export function useListController(options: UseListControllerOptions): UseListControllerReturn {
     const { doctype, pageSize = 20, autoLoad = true } = options;
@@ -27,7 +27,8 @@ export function useListController(options: UseListControllerOptions): UseListCon
     const controllerRef = useRef<ListController | null>(null);
     const [state, setState] = useState<ListState>({
         data: [],
-        total: 0,
+        total: null,
+        hasMore: false,
         page: 1,
         pageSize,
         isLoading: false,

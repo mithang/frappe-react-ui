@@ -128,11 +128,36 @@ CLI / npm registry rather than assumed:**
 - `src/models/DocumentModel.ts` is now used by exactly one remaining file
   (`ListController.ts`, Wave 2B's territory) — no longer 3.
 
+## Post-Wave-2B (2026-08-13) — List engine, Claude
+
+- `npx tsc -p tsconfig.app.json --noEmit`: **0 errors**. Lint: **62 errors, `no-explicit-any` 55**
+  — dropped again from 2A's 70/63 (`ListController.ts`, `useListController.ts`, `SmartList.tsx`
+  all came out properly typed rather than carrying forward `any`). Baselines lowered again.
+  Unit tests still 39/39. E2E: new `e2e/list-pagination.spec.ts`, the plan's literal Wave 2B exit
+  criterion verified live — navigates `/doctype/DocType` (800+ rows on a stock bench), confirms
+  page 1 shows a real non-blank column value (not `-`), advances to page 2, and asserts the rows
+  actually changed. `npx playwright test` (both specs) green together.
+- `ListController.ts` rewritten onto `FrappeClient.getList()` (real `reportview.get` + separate
+  `get_count`, closing **C3** — `total` was `data.length`, which made "Next" either a no-op or
+  wrong past page 1; `total` is now `number | null`, `null` meaning "of many" per a genuine
+  backend statement timeout, not zero) and fetching every `in_list_view` field plus `name`/
+  `docstatus`/`modified` (closing **C4** — it previously only ever requested
+  name/creation/modified regardless of what the list claimed to show, so every other column
+  rendered as `-`). `deleteMultiple` is now `Promise.all` over one batch, not N sequential
+  round trips (half of **C10**).
+- `SmartList.tsx`: **C8** fixed — status badge now reads real `docstatus` (Draft/Submitted/
+  Cancelled) instead of a hardcoded `<Badge>Active</Badge>` on every row regardless of state.
+  **C10**'s other half: both single-row and bulk delete now require an `AlertDialog`
+  confirmation instead of firing immediately on click. Pagination UI reads the real
+  `total`/`hasMore` from the controller instead of comparing against `data.length`.
+- `src/models/DocumentModel.ts` had zero remaining consumers once `ListController.ts` moved off
+  it — **deleted** (this was originally 1A's job in the plan; deferred in Wave 1 because it still
+  had 3 real consumers then, now genuinely safe).
+
 ## What this baseline does NOT cover
 
-`SmartList`/`ListController` don't consume the new client/store yet (C3, C4, C8 still open) —
-that's Wave 2B. `LinkField.tsx`'s own read of the old global `useDocumentStore` (for Dynamic Link
-resolution, bug A2's other half) is still not migrated — it's a Wave 2C-owned file. Don't read a
-green gate here as "the app works" in full; it means forms specifically now save/load/submit/
-cancel/amend/delete for real, against a real bench, not that lists or field-level Dynamic Link
-scoping do yet.
+`LinkField.tsx`'s own read of the old global `useDocumentStore` (for Dynamic Link resolution, bug
+A2's other half) is still not migrated — it's a Wave 2C-owned file (AntiGravity's). List search is
+still client-side over just the current page, not a real server-side search — that's later Wave
+territory, not one of C1–C10. Don't read a green gate here as "the app works" in full; it means
+forms AND lists now save/load/submit/cancel/amend/delete/paginate for real, against a real bench.
