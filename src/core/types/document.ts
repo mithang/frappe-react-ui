@@ -91,6 +91,8 @@ export interface DocTypeMeta {
     is_tree?: boolean;
     issingle?: boolean;
     track_changes?: boolean;
+    /** Gates whether a Data Import can target this doctype at all — checked server-side too. */
+    allow_import?: FrappeBool;
 }
 
 export interface Document {

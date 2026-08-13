@@ -29,6 +29,9 @@ export interface FrappeClient {
   getMeta(doctype: string): Promise<{ meta: DocTypeMeta; childMetas: Record<string, DocTypeMeta>; docperms: DocPerm[] }>;
   deleteDoc(doctype: string, name: string): Promise<void>;
   uploadFile(args: UploadFileArgs): Promise<UploadedFile>;
+  /** For endpoints that return a raw file (Content-Disposition: attachment) instead of JSON —
+   *  export_query, download_template, download_import_log, and friends all share this shape. */
+  downloadFile(method: string, args?: Record<string, unknown>): Promise<{ blob: Blob; filename: string }>;
   /** The session probe — a 401/403 here means "not logged in", not "permission denied on this doc". */
   getLoggedUser(): Promise<string>;
   searchLink(args: { doctype: string; txt: string; filters?: unknown }): Promise<LinkOption[]>;
@@ -205,6 +208,35 @@ class FrappeClientImpl implements FrappeClient {
       body: form,
     })) as { message: UploadedFile };
     return body.message;
+  }
+
+  async downloadFile(method: string, args: Record<string, unknown> = {}): Promise<{ blob: Blob; filename: string }> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(args)) {
+      if (value === undefined) continue;
+      params.append(key, typeof value === 'string' ? value : JSON.stringify(value));
+    }
+
+    const res = await fetch(`${this.baseUrl}/api/method/${method}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: withCsrfHeader({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body: params.toString(),
+    });
+
+    if (!res.ok) {
+      const error = await buildApiError(res);
+      if (error.isAuthFailure) {
+        for (const handler of this.authFailureHandlers) handler(error);
+      }
+      throw error;
+    }
+
+    const blob = await res.blob();
+    // Server always sets this on a real attachment response; "download" is a fallback name only.
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? 'download';
+    return { blob, filename };
   }
 
   async getLoggedUser(): Promise<string> {

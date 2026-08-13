@@ -7,6 +7,7 @@ import { NumberCardWidget } from '@/components/widgets/NumberCardWidget';
 import { ChartWidget } from '@/components/widgets/ChartWidget';
 import { OnboardingWidget } from '@/components/widgets/OnboardingWidget';
 import { resolveLucideIcon } from '@/lib/icons';
+import { decodeHtmlText } from '@/lib/html';
 import {
   FileText,
   Users,
@@ -22,20 +23,6 @@ import {
   HelpCircle,
   BookOpen
 } from 'lucide-react';
-
-/**
- * Workspace header widget text arrives as HTML (`<span class="h4"><b>Reports &amp; Masters</b>
- * </span>`) — stripping tags with a regex leaves entities like `&amp;` un-decoded (D5 rules out
- * `dangerouslySetInnerHTML` as the fix, since this is server-editable content). A detached
- * <textarea> decodes entities via the browser's own HTML parser without ever rendering or
- * executing the markup — its `.value` is plain decoded text, nothing is inserted into the DOM.
- */
-function decodeHtmlText(html: string): string {
-  const stripped = html.replace(/<[^>]*>?/gm, '');
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = stripped;
-  return textarea.value;
-}
 
 const IconForShortcut = ({ name }: { name: string }) => {
   const lower = name.toLowerCase();

@@ -13,6 +13,7 @@ import { DocTypeRegistry } from '@/core/registry/DocTypeRegistry';
 import { FieldRegistry } from '@/core/registry/FieldRegistry';
 import { ScriptRegistry, registerClientScript } from '@/core/registry/ScriptRegistry';
 import { EventBus } from '@/core/eventbus/EventBus';
+import DataImportForm from '@/views/forms/DataImportForm';
 
 let initialized = false;
 
@@ -36,6 +37,9 @@ interface Registration {
  */
 const registrations: Registration[] = [
     { name: 'field-renderers', register: registerDefaultFieldRenderers },
+    // Same mechanism a real extension would use (ExtensionHost.registerForm) — Data Import just
+    // isn't third-party, it's a built-in override registered directly at boot.
+    { name: 'data-import-form', register: () => DocTypeRegistry.register('Data Import', { Form: DataImportForm }) },
 ];
 
 /**
