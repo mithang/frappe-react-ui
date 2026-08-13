@@ -20,10 +20,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { ChevronLeft, ChevronRight, SlidersHorizontal, PlusCircle, GripVertical, MoreHorizontal } from 'lucide-react';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ChevronLeft, ChevronRight, SlidersHorizontal, PlusCircle, GripVertical, MoreHorizontal, Download, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/format/formatDate';
+import { exportList } from '@/lib/export';
 import type { Document } from '@/core/types';
 import SmartForm from '@/views/forms/SmartForm';
 
@@ -154,6 +155,20 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
         }
     };
 
+    const handleExport = async (fileFormatType: 'CSV' | 'Excel') => {
+        if (!meta) return;
+        try {
+            await exportList({
+                doctype,
+                meta,
+                fileFormatType,
+                selectedNames: selectedItems.size > 0 ? Array.from(selectedItems) : undefined,
+            });
+        } catch (error) {
+            toast({ title: 'Error', description: 'Failed to export records', variant: 'destructive' });
+        }
+    };
+
     const listFields = meta?.fields?.filter((f) => f.in_list_view) || [];
     const columns = listFields.length > 0 ? listFields.map(f => f.fieldname) : ['modified'];
     
@@ -193,6 +208,28 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                             </AlertDialogContent>
                         </AlertDialog>
                     )}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className="h-9" disabled={!meta}>
+                                <Download className="mr-2 h-4 w-4" />
+                                Export{selectedItems.size > 0 ? ` (${selectedItems.size})` : ''}
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleExport('CSV')}>Export as CSV</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleExport('Excel')}>Export as Excel</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    {meta?.allow_import ? (
+                        <Button
+                            variant="outline"
+                            className="h-9"
+                            onClick={() => navigate('/doctype/Data Import/new', { state: { referenceDoctype: doctype } })}
+                        >
+                            <Upload className="mr-2 h-4 w-4" />
+                            Import
+                        </Button>
+                    ) : null}
                     <Button onClick={handleNewDoc} className="h-9">
                         <PlusCircle className="mr-2 h-4 w-4" />
                         New {doctype}
