@@ -207,40 +207,56 @@ guess, then integrated and gated together by hand.
   `Dashboard.tsx` — all replacing raw `toLocaleDateString()`/`toLocaleString()` calls that ignored
   System Settings and were browser-locale-dependent.
 
-## 4A (realtime) — BLOCKED, not built, needs a decision
+## Post-4A (2026-08-13) — Realtime via socket.io, Claude
 
-The realtime subagent correctly stopped rather than work around its constraints. Two separate
-findings, both real:
+Built after user go-ahead to add the dependency and accept the known limitation below.
+`socket.io-client@^4.8.3` added (matches the server's `socket.io@^4.7.1` — same major line the
+real Frappe Desk client uses). `npx tsc --noEmit`: 0 errors. Lint ratchet: unchanged at 59/55
+(one new `any` from a necessarily-partial test mock was fixed via a single typed cast at the
+mock's return boundary, not left as debt). Unit tests: **99/99** across 16 files (5 new, covering
+subscribe-on-mount, doctype/docname-scoped event filtering, unsubscribe-on-unmount, and
+resubscribe-on-docname-change, all against an injected mock socket — no real connection opened in
+tests). Both E2E specs still pass live, which is the real proof here: `useFormController` now
+tries to open a socket on every form mount, and the suite still passes with the connection
+rejected (see the limitation below) — confirming the feature degrades silently rather than
+breaking the form when the handshake fails, not just that it typechecks.
 
-1. **No `socket.io-client` dependency exists** in this project (confirmed three ways: `require.
-   resolve` fails, absent from `package-lock.json`, and `frappe-js-sdk` — nominally installed —
-   doesn't pull it in transitively and isn't imported anywhere in `src/`, i.e. it's dead weight).
-   Adding it is a one-line `package.json` change but is a decision outside a subagent's remit
-   under this project's "don't add dependencies without asking" norm.
-2. **A likely architecture conflict, found by reading `frappe/realtime/auth.py`**: the socket.io
-   handshake's `_validate_origin` does an *exact* Host/Origin hostname match. This project's
-   documented deployment (see the Auth & transport section above) is deliberately cross-*origin*
-   same-*site* (`app.acme.com` SPA → `erp.acme.com` bench) — under that model a direct browser
-   socket connection would send `Origin: app.acme.com` against `Host: erp.acme.com` and get
-   rejected. There is no `allowed_referrers`-equivalent escape hatch for the realtime handshake
-   the way there is for the REST/CSRF path. Also unresolved: the socket namespace needs
-   `frappe.boot.sitename`, and there is no boot RPC to source it from client-side.
+- `src/lib/realtime/socket.ts` — lazy singleton connection (only dials on first subscribe),
+  `withCredentials: true` so the `sid` cookie rides the handshake.
+- `src/lib/realtime/useDocRealtime.ts` — subscribes/unsubscribes via the verified
+  `doc_subscribe`/`doc_unsubscribe(doctype, docname)` events, filters incoming `doc_update`
+  events to the exact (doctype, docname) pair, cleans up on unmount/docname change.
+  Deliberately unopinionated: it just plumbs the verified event through; the caller decides what
+  a remote change means.
+- Wired into `useFormController.ts`: a clean form silently `reload()`s on a remote change; a
+  dirty form is left untouched and gets a toast instead — never auto-overwrites in-progress edits.
 
-Real RPC-level findings recorded for whoever picks this up: the verified subscribe/unsubscribe
-events are `doc_subscribe`/`doc_unsubscribe(doctype, docname)` joining room `doc:{doctype}/
-{docname}`; the server emits `doc_update` with `{modified, doctype, name}` (a refetch signal, not
-the full doc) via `Document.notify_update()`; real presence (`doc_open`/`doc_close` →
-`doc_viewers`) exists server-side but was out of scope for this pass. This needs a decision on
-(a) whether to add `socket.io-client`, and (b) how — or whether — to resolve the origin-validation
-conflict before building against it; building the client code without resolving (b) risks shipping
-a feature that fails silently in the exact production topology this plan committed to.
+**Known, accepted limitation — not a frontend bug, and not silently worked around:** Frappe's
+socket handshake (`frappe/realtime/auth.py`'s `_validate_origin`) does an exact Host/Origin
+hostname match, confirmed by reading `get_hostname()` (`frappe/realtime/util.py`) — it returns the
+full hostname, not the registrable eTLD+1, so it does NOT treat `app.acme.com`/`erp.acme.com` as
+equivalent. This plan's documented production deployment (same-site, cross-*origin* subdomains) is
+exactly the case this rejects, and there is no `allowed_referrers`-equivalent escape hatch for
+sockets the way there is for the REST/CSRF path — confirmed live in this repo's own E2E suite,
+which runs same-site cross-origin (`app.localtest.me` → `erp.localtest.me`) and gets its socket
+connection refused every run, without the app breaking. Realtime works today when the SPA and
+bench are genuinely same-origin — the Vite dev proxy (`vite.config.ts`) qualifies, because it
+doesn't rewrite the `Host` header by default, so both `Host` and `Origin` arrive at the backend as
+the SPA's own origin. **Production same-site-cross-origin deployment needs a bench-side decision**
+(a Frappe patch loosening `_validate_origin`, or accepting no realtime in that topology) before
+this feature does anything in prod beyond degrading gracefully to "no live updates." Also
+unresolved: the socket connects to the default namespace rather than `/{sitename}` since there's
+no boot RPC to source `frappe.boot.sitename` from client-side — fine for single-tenant benches,
+unverified for multi-tenant ones.
 
 ## What this baseline does NOT cover
 
 `LinkField.tsx`'s own read of the old global `useDocumentStore` (for Dynamic Link resolution, bug
 A2's other half) is still not migrated — it's a Wave 2C-owned file (AntiGravity's). List search is
 still client-side over just the current page, not a real server-side search — that's later Wave
-territory, not one of C1–C10. Realtime (4A) is unbuilt, blocked on the decision above. Don't read
-a green gate here as "the app works" in full; it means forms and lists save/load/submit/cancel/
-amend/delete/paginate for real against a real bench, server Client Scripts and downstream-app
-extensions actually load, and dates/numbers respect the bench's own System Settings.
+territory, not one of C1–C10. Realtime doesn't function in the documented production cross-origin
+topology yet (see above) — it works same-origin (dev proxy) only, pending a bench-side decision.
+Don't read a green gate here as "the app works" in full; it means forms and lists save/load/
+submit/cancel/amend/delete/paginate for real against a real bench, server Client Scripts and
+downstream-app extensions actually load, dates/numbers respect the bench's own System Settings,
+and clean forms pick up remote changes live when same-origin.
