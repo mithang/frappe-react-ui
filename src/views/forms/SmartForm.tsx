@@ -426,6 +426,26 @@ const FormContent: React.FC<FormContentProps> = ({ meta, doc, errors, setValue, 
         <PlainFields fields={fields} doc={doc} errors={errors} setValue={setValue} doctype={doctype} frm={frm} readOnly={readOnly} />
     );
 
+    // Sections declared before the first Tab Break (e.g. Journal Entry's leading "Company"/
+    // "Posting Date" section) render as plain sections above the tab strip — same placement Desk
+    // itself uses — not silently dropped, and not force-fit into whichever tab happens to be first.
+    const leadingSections = sections.length > 0 && (
+        <>
+            {sections.map((section, index) => (
+                <SectionRenderer
+                    key={`leading-section-${index}`}
+                    section={section}
+                    doc={doc}
+                    errors={errors}
+                    setValue={setValue}
+                    doctype={doctype}
+                    frm={frm}
+                    readOnly={readOnly}
+                />
+            ))}
+        </>
+    );
+
     // Render tabs if present
     if (tabs.length > 0) {
         const defaultTab = tabs[0]?.label.toLowerCase().replace(/\s+/g, '-') || 'tab-0';
@@ -433,6 +453,7 @@ const FormContent: React.FC<FormContentProps> = ({ meta, doc, errors, setValue, 
         return (
             <div className="space-y-6">
                 {leadingFields}
+                {leadingSections}
                 <Tabs defaultValue={defaultTab} className="w-full">
                     <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent">
                         {tabs.map((tab, index) => (
@@ -573,11 +594,20 @@ function groupFieldsByStructure(fields: DocField[]) {
 
     for (const field of fields) {
         if (field.fieldtype === 'Tab Break') {
-            if (currentTab) {
-                if (currentSection) {
+            // A Section Break can appear before the FIRST Tab Break (e.g. Journal Entry's
+            // leading "Company"/"Posting Date" section) — route it to whichever bucket is
+            // active. Previously this only flushed when `currentTab` already existed, so that
+            // leading section (and every field in it) was silently dropped at the first Tab
+            // Break, never rendered anywhere.
+            if (currentSection) {
+                if (currentTab) {
                     currentTab.sections.push(currentSection);
-                    currentSection = null;
+                } else {
+                    groups.sections.push(currentSection);
                 }
+                currentSection = null;
+            }
+            if (currentTab) {
                 groups.tabs.push(currentTab);
             }
             currentTab = { label: field.label || 'Unnamed Tab', sections: [] };
