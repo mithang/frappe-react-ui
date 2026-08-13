@@ -2,7 +2,8 @@ import React from 'react';
 import type { DocField, FieldRendererProps } from '@/core/types';
 import { FieldRegistry } from '@/core/registry/FieldRegistry';
 import { DocTypeRegistry } from '@/core/registry/DocTypeRegistry';
-import { useDocumentStore } from '@/store';
+import { useFormStore } from '@/store/formStore';
+import { evaluateFieldVisibility } from '@/lib/expr/dependsOn';
 
 // Fallback component if no renderer is found
 const FallbackField: React.FC<FieldRendererProps<any>> = ({ field, value, onChange, disabled, error }) => (
@@ -43,14 +44,20 @@ export const FieldDispatcher: React.FC<FieldDispatcherProps> = ({
     doc,
     hideLabel,
 }) => {
-    const { fieldOverrides } = useDocumentStore();
+    const fieldOverrides = useFormStore((s) => s.overrides);
 
     // Apply field overrides from store
     const overrides = fieldOverrides.get(field.fieldname) || {};
     const effectiveField = { ...field, ...overrides };
 
+    // depends_on/mandatory_depends_on/read_only_depends_on (A6), evaluated against `doc` — the
+    // owning document OR, inside a child table, the row itself (A2's scoping fix). Falls back to
+    // {} rather than skipping evaluation entirely, since a plain-fieldname depends_on with no doc
+    // should read as "falsy" (hidden), not "always visible".
+    const visibility = evaluateFieldVisibility(effectiveField, doc ?? {});
+
     // Skip hidden fields
-    if (effectiveField.hidden) {
+    if (visibility.hidden) {
         return null;
     }
 
@@ -68,10 +75,10 @@ export const FieldDispatcher: React.FC<FieldDispatcherProps> = ({
     }
 
     const props: FieldRendererProps = {
-        field: effectiveField,
+        field: { ...effectiveField, reqd: visibility.reqd, read_only: visibility.readOnly },
         value,
         onChange,
-        disabled: disabled || effectiveField.read_only,
+        disabled: disabled || visibility.readOnly,
         error,
         frm,
         doc,
@@ -82,7 +89,7 @@ export const FieldDispatcher: React.FC<FieldDispatcherProps> = ({
             {!hideLabel && (
                 <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                     {effectiveField.label || effectiveField.fieldname}
-                    {!!effectiveField.reqd && <span className="text-destructive ml-1">*</span>}
+                    {!!visibility.reqd && <span className="text-destructive ml-1">*</span>}
                 </label>
             )}
             <FieldComponent {...props} />

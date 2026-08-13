@@ -97,9 +97,42 @@ CLI / npm registry rather than assumed:**
   `ListController.ts` — none yet migrated to the new client; deleting it now would break the app
   for no gain until those are rewritten in Wave 2A/2B).
 
+## Post-Wave-2A (2026-08-13) — Form engine, Claude
+
+- `npx tsc -p tsconfig.app.json --noEmit`: **0 errors**. Lint: **70 errors, `no-explicit-any` 63**
+  — both *dropped* from Wave 1 (77/71), not just held steady: `SmartForm.tsx` was properly typed
+  (`Document`, `FormControllerImpl | null`, `unknown` for field values) rather than carrying
+  forward its pre-existing `any` props while I was already rewriting the file around them.
+  Baselines lowered to lock this in. Unit tests still 39/39 (form-engine changes are covered by
+  the live E2E below, not new unit tests — there's no meaningful way to unit-test `savedocs`
+  round-tripping without a server). E2E: extended to cover the UPDATE path, not just create —
+  create a ToDo, then edit and save it again, both verified against the live container.
+- `FormController.ts` rewritten onto the real `FrappeClient`/`formStore` (closing **A8**): `save()`
+  now calls `saveDoc()` → real `frappe.desk.form.save.savedocs`, not the old `DocumentModel`'s
+  plain REST `PUT`/`POST` — conflict detection, `_server_messages`, and `exc_type` all survive
+  now, live-verified end to end (create AND update) against the container, not just typechecked.
+  `useFormController.ts` creates a fresh `formStore` per `(doctype, name)` pair.
+- `FieldDispatcher.tsx` migrated onto the new `formStore` (closing the Wave 1 deferral) — safe
+  now because `FormController.set_df_property` writes to the SAME store `FieldDispatcher` reads
+  from `SmartForm`'s `<FormStoreProvider>`. Also newly wired: `evaluateFieldVisibility`
+  (`depends_on`/`mandatory_depends_on`/`read_only_depends_on`, closing **A6**) — built in Wave 1B
+  but nothing consumed it until now.
+- **C6 fixed**: fields declared before the first Tab/Section Break used to be silently dropped
+  whenever the doctype also had tabs or sections later (`FormContent` rendered exactly one of
+  {tabs, sections, leading-fields} instead of leading-fields-plus-whichever-branch-matched).
+  `SmartForm.tsx` now always renders leading fields alongside tabs/sections.
+- **A5 (docstatus lifecycle)** and **C10 (delete confirmation)** added to `SmartForm.tsx`: Save/
+  Submit/Cancel-document/Amend buttons gated by `meta.is_submittable` + `doc.docstatus`, fields
+  become read-only post-submit (except `allow_on_submit` ones), and delete now requires an
+  `AlertDialog` confirmation instead of firing immediately.
+- `src/models/DocumentModel.ts` is now used by exactly one remaining file
+  (`ListController.ts`, Wave 2B's territory) — no longer 3.
+
 ## What this baseline does NOT cover
 
-C1–C10 mostly still open at the UI level: `FormController`/`useFormController`/`SmartForm`/
-`SmartList` don't consume the new client/store/evaluators yet — Wave 1 built the contracts, Wave 2
-wires them into the actual form/list engines. Don't read a green gate here as "the app works" —
-it means the foundation and the frozen contracts are solid to build Wave 2 on.
+`SmartList`/`ListController` don't consume the new client/store yet (C3, C4, C8 still open) —
+that's Wave 2B. `LinkField.tsx`'s own read of the old global `useDocumentStore` (for Dynamic Link
+resolution, bug A2's other half) is still not migrated — it's a Wave 2C-owned file. Don't read a
+green gate here as "the app works" in full; it means forms specifically now save/load/submit/
+cancel/amend/delete for real, against a real bench, not that lists or field-level Dynamic Link
+scoping do yet.
