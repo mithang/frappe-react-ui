@@ -6,6 +6,7 @@ import { QuickListWidget } from '@/components/widgets/QuickListWidget';
 import { NumberCardWidget } from '@/components/widgets/NumberCardWidget';
 import { ChartWidget } from '@/components/widgets/ChartWidget';
 import { OnboardingWidget } from '@/components/widgets/OnboardingWidget';
+import { resolveLucideIcon } from '@/lib/icons';
 import {
   FileText,
   Users,
@@ -21,6 +22,20 @@ import {
   HelpCircle,
   BookOpen
 } from 'lucide-react';
+
+/**
+ * Workspace header widget text arrives as HTML (`<span class="h4"><b>Reports &amp; Masters</b>
+ * </span>`) — stripping tags with a regex leaves entities like `&amp;` un-decoded (D5 rules out
+ * `dangerouslySetInnerHTML` as the fix, since this is server-editable content). A detached
+ * <textarea> decodes entities via the browser's own HTML parser without ever rendering or
+ * executing the markup — its `.value` is plain decoded text, nothing is inserted into the DOM.
+ */
+function decodeHtmlText(html: string): string {
+  const stripped = html.replace(/<[^>]*>?/gm, '');
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = stripped;
+  return textarea.value;
+}
 
 const IconForShortcut = ({ name }: { name: string }) => {
   const lower = name.toLowerCase();
@@ -75,7 +90,7 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
         return (
           <div key={widget.id} className={`${colClass} mb-2 mt-4 first:mt-0`}>
             <div className="text-lg font-semibold tracking-tight text-foreground">
-              {widget.data.text?.replace(/<[^>]*>?/gm, '') || ''}
+              {widget.data.text ? decodeHtmlText(widget.data.text) : ''}
             </div>
           </div>
         );
@@ -103,8 +118,8 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
           <div key={widget.id} className={colClass}>
             <Card className="h-full cursor-pointer hover:shadow-md transition-all duration-200 hover:border-primary/50">
               <CardContent className="p-6 flex flex-col items-center justify-center h-full gap-3">
-                <div className="p-3 rounded-full bg-muted">
-                  <span className="text-2xl">📊</span>
+                <div className="p-3 rounded-full bg-primary/5 text-primary">
+                  <IconForShortcut name={widget.data.card_name || ''} />
                 </div>
                 <span className="text-sm font-medium text-center">{widget.data.card_name}</span>
               </CardContent>
@@ -164,15 +179,11 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
       <div className="mb-8 border-b pb-4">
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-          <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary text-xl">
-            {workspace.icon === 'accounting' && '💰'}
-            {workspace.icon === 'organization' && '🏢'}
-            {workspace.icon === 'quality' && '✅'}
-            {workspace.icon === 'project' && '📋'}
-            {workspace.icon === 'users' && '👥'}
-            {workspace.icon === 'website' && '🌐'}
-            {workspace.icon === 'setting-gear' && '⚙️'}
-            {!['accounting', 'organization', 'quality', 'project', 'users', 'website', 'setting-gear'].includes(workspace.icon || '') && '📄'}
+          <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary">
+            {(() => {
+              const WorkspaceIcon = resolveLucideIcon(workspace.icon, FileText);
+              return <WorkspaceIcon className="w-5 h-5" />;
+            })()}
           </span>
           {workspace.label}
         </h1>

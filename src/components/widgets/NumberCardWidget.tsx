@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getFrappeApp } from '@/lib/frappe';
+import { getFrappeClient } from '@/lib/api/client';
 import { formatNumber } from '@/lib/format/formatNumber';
 
 interface NumberCardProps {
@@ -9,6 +9,15 @@ interface NumberCardProps {
   col?: number;
 }
 
+/**
+ * frappe.desk.doctype.number_card.number_card.get_result(doc, filters, to_date?) requires the
+ * card's FULL document (not just its name — it reads doc.function/doc.aggregate_function_based_on
+ * server-side) and an explicit `filters` argument (missing entirely, not just falsy, throws a
+ * TypeError) — both verified live against a real bench after the previous version's call
+ * (`{ doc: { name: cardName } }`, no filters) 500'd on every card. frappe.desk.desktop.
+ * get_number_cards_data, the fallback this used to try first, doesn't exist on any Frappe
+ * version (confirmed live).
+ */
 export function NumberCardWidget({ cardName }: NumberCardProps) {
   const [value, setValue] = useState<number | string>('--');
   const [isLoading, setIsLoading] = useState(true);
@@ -18,59 +27,31 @@ export function NumberCardWidget({ cardName }: NumberCardProps) {
   }, [cardName]);
 
   const loadNumberCardData = async () => {
+    setIsLoading(true);
     try {
-      const frappe = getFrappeApp();
+      const client = getFrappeClient();
+      const { doc } = await client.getDoc('Number Card', cardName);
 
-      // Call Frappe Number Card API
-      let response: { message?: unknown } | null = null;
-      try {
-        response = await frappe.call('frappe.desk.doctype.number_card.number_card.get_result', {
-          doc: { name: cardName },
-        });
-      } catch {
-        // Fallback to legacy endpoint if available
+      const filters = (() => {
         try {
-          response = await frappe.call('frappe.desk.desktop.get_number_cards_data', {
-            card_name: cardName,
-          });
+          return JSON.parse((doc.filters_json as string) || '[]');
         } catch {
-          response = null;
+          return [];
         }
-      }
+      })();
 
-      if (response && response.message !== undefined && response.message !== null) {
-        setValue(response.message as number | string);
-      } else {
-        const doctype = extractDoctypeFromCardName(cardName);
-        if (doctype) {
-          try {
-            const countRes = await frappe.call('frappe.client.get_count', { doctype });
-            setValue(typeof countRes.message === 'number' ? countRes.message : '--');
-          } catch {
-            setValue('--');
-          }
-        } else {
-          setValue('--');
-        }
-      }
+      const result = await client.call<number>('frappe.desk.doctype.number_card.number_card.get_result', {
+        doc: JSON.stringify(doc),
+        filters: JSON.stringify(filters),
+      });
+
+      setValue(typeof result === 'number' ? result : '--');
     } catch (error) {
       console.error(`Failed to load number card data for ${cardName}:`, error);
       setValue('--');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const extractDoctypeFromCardName = (name: string): string | null => {
-    const mappings: Record<string, string> = {
-      'Total Outgoing Bills': 'Purchase Invoice',
-      'Total Incoming Bills': 'Sales Invoice',
-      'Total Incoming Payment': 'Payment Entry',
-      'Total Outgoing Payment': 'Payment Entry',
-      'Active Customers': 'Customer',
-      'Active Suppliers': 'Supplier',
-    };
-    return mappings[name] || null;
   };
 
   const formatValue = (val: number | string): string => {
