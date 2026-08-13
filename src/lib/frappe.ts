@@ -1,4 +1,19 @@
-// Real ERPNext/Frappe API integration
+// DEPRECATED — this is a strangler shim, not the place to add new functionality.
+//
+// New code should use `getFrappeClient()` / `createFrappeClient()` from `@/lib/api/client`
+// (the frozen FrappeClient contract) plus the TanStack Query hooks in `@/lib/query/*`, which
+// have correct `getdoc`/`savedocs`/`reportview.get` shapes — see docs/agent-rules/frappe-api.md.
+//
+// This file exists only so the 13 existing call sites (`getFrappeApp().call(...)`, `.getDoc(...)`,
+// etc.) keep compiling and working while each is migrated individually — a big-bang rewrite here
+// would force every consumer to change at once. What it DOES fix, transport-wide, without
+// changing any method's signature or return shape: the missing `X-Frappe-CSRF-Token` header (C2)
+// and proper `_server_messages`/`exc_type` error parsing. Migrate a call site by switching it to
+// `@/lib/api/client` + `@/lib/query/*` and deleting its `@/lib/frappe` import — once nothing
+// imports this file, delete it.
+
+import { buildApiError } from './api/errors';
+import { withCsrfHeader } from './api/csrf';
 
 export interface FrappeConfig {
   url: string;
@@ -47,48 +62,18 @@ class FrappeAPI {
     const response = await fetch(url, {
       ...options,
       credentials: 'include', // Important for session-based auth
-      headers: {
+      headers: withCsrfHeader({
         ...defaultHeaders,
         ...options.headers,
-      },
+      }),
     });
 
     if (!response.ok) {
-      // Check for auth errors
-      if (response.status === 401 || response.status === 403) {
-        // Clear session on auth failure
+      const error = await buildApiError(response);
+      if (error.isAuthFailure) {
         this.clearSession();
-        throw new Error('Session expired. Please login again.');
       }
-      const errorText = await response.text();
-      let errorMessage = `HTTP ${response.status}`;
-
-      try {
-        const errorJson = JSON.parse(errorText);
-
-        // Handle _server_messages (Frappe's typical error wrapper)
-        if (errorJson._server_messages) {
-          try {
-            const messages = JSON.parse(errorJson._server_messages);
-            const combinedMessage = messages
-              .map((m: any) => JSON.parse(m).message)
-              .join('\n');
-            if (combinedMessage) errorMessage = combinedMessage;
-          } catch {
-            // Fallback if message parsing fails
-          }
-        }
-
-        // Handle standard exception messages
-        if (!errorMessage.includes(errorJson.exception) && errorJson.exception) {
-          errorMessage = errorJson.exception;
-        }
-      } catch {
-        // Not JSON or parsing failed, use raw text if short, else generic
-        if (errorText.length < 200) errorMessage += `: ${errorText}`;
-      }
-
-      throw new Error(errorMessage);
+      throw error;
     }
 
     const data = await response.json();
@@ -141,7 +126,7 @@ class FrappeAPI {
     try {
       const response = await this.call('frappe.auth.get_logged_user');
       return response.message;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -250,8 +235,11 @@ class FrappeAPI {
   }
 }
 
-// Default ERPNext instance (users can configure this)
-export const DEFAULT_ERPNEXT_URL = 'https://demo.erpnext.com';
+// NOTE: previously defaulted to 'https://demo.erpnext.com' — deleted deliberately (see the
+// plan's Auth & transport section). A misconfigured build with no stored URL now fails closed
+// (the login form requires the user to type one) instead of silently posting credentials to a
+// public demo server.
+export const DEFAULT_ERPNEXT_URL = '';
 
 // Get stored URL or use default
 function getStoredUrl(): string {

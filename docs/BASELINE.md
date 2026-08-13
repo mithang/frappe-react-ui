@@ -50,9 +50,56 @@ CLI / npm registry rather than assumed:**
   `Root`, `WeekNumber`) is what the regenerated `calendar.tsx` actually uses, so there was no
   reason to go further than necessary.
 
+## Post-Wave-1 (2026-08-13) — 1A/1B/1C, Claude
+
+- `npx tsc -p tsconfig.app.json --noEmit`: **0 errors**. `npx eslint .`: **77 errors, 19 warnings**
+  — unchanged from Wave 0 despite ~20 new files; `no-explicit-any` also unchanged at **71**
+  (4 new violations were introduced and fixed during this wave, not left as new debt).
+  Unit tests: **39 passing**, 7 files (16 carried over + 23 new: `formStore` C1/A1 proof,
+  `dependsOn`/`evaluate` pure-evaluator coverage, `installExtension` exit-criteria proof). E2E:
+  still 1 passing, re-verified after every Wave 1 change that touched the transport/auth path.
+- **1A** shipped `src/lib/api/{errors,csrf,config,client}.ts` and `src/lib/query/{keys,queries,
+  mutations}.ts` — the frozen `FrappeClient` contract, all RPC shapes matching the fixtures
+  recorded in Wave 0, not the plan's original guesses (`getDoc`'s `docs: [doc]` unwrap, `getMeta`'s
+  `docs[0]`/`docs[1:]` split, `savedocs`'s form-encoded `doc` + `localname` re-keying,
+  `reportview.get`'s columnar zip + missing-array guard, `search_link`'s real
+  `{value,description,label?}` shape verified against Frappe source — not the `{results:[...]}`
+  shape an earlier test mock had guessed). `src/lib/frappe.ts` is now the strangler shim: same 13
+  call sites, same method signatures, but transport-level CSRF header injection and proper
+  `_server_messages`/`exc_type` parsing fixed underneath for all of them at once. The dangerous
+  `https://demo.erpnext.com` default is gone from `lib/frappe.ts`, `AuthContext.tsx`, and
+  `LoginForm.tsx`.
+- **1B** shipped `src/store/formStore.ts` (per-instance factory + `FormStoreProvider`/
+  `useFormStore`, tested proving `setValue`/`resetTo` don't conflate and two instances stay
+  independent — the actual C1/A1 fix), `src/store/uiStore.ts` (replacing a same-named, zero-import
+  slice that was dead in `store/index.ts`), and pure evaluators `src/lib/expr/dependsOn.ts` /
+  `src/lib/perm/evaluate.ts` (both tested).
+  **Deliberately NOT done:** migrating `FieldDispatcher.tsx`'s read side onto the new `formStore`.
+  `FormController.ts` (`set_df_property`/`toggle_*`) still WRITES field overrides to the old
+  global `useDocumentStore` — switching only `FieldDispatcher`'s read side would make client-script
+  field toggling silently stop working. `FormController.ts`/`useFormController.ts`/`LinkField.tsx`
+  are Wave 2A/2C-owned files; the real migration has to move the write side and the read side
+  together, which is that wave's work, not something to force apart now.
+- **1C** shipped `NavRegistry`, `RouteRegistry`, `CommandRegistry`, `WidgetRegistry`,
+  `FormRegistry` (toolbar buttons + named slots), `ListRegistry` (bulk/row actions) — the last two
+  weren't in the plan's literal Owns list for 1C, but its own exit criterion ("add a form toolbar
+  button... with no change to core files") needs them; 2A/2B still own actually *rendering* what
+  these store. `ExtensionHost` + `src/sdk/` (`defineExtension`) + `installExtension` (apiVersion
+  gate, setup()-time isolation) + `ExtensionErrorBoundary` (render-time isolation) together satisfy
+  1C's exit criterion exactly, proven in
+  `src/core/registry/__tests__/installExtension.test.ts`. Also shipped
+  `scripts/client-script-inventory.mjs` (must run against a real customer bench, not the vanilla
+  SNE container — an empty result from the vanilla one is misleading, not reassuring).
+  `DocTypeRegistry.registerFieldRenderer()` was added — the older skill text referenced it as if
+  it already existed; it didn't, until now.
+- **Explicitly deferred, not forgotten:** `src/models/DocumentModel.ts` deletion (plan says 1A
+  deletes it, but it has 3 real consumers — `FormController.ts`, `useFormController.ts`,
+  `ListController.ts` — none yet migrated to the new client; deleting it now would break the app
+  for no gain until those are rewritten in Wave 2A/2B).
+
 ## What this baseline does NOT cover
 
-Everything Wave 1+ is responsible for is untouched: no `FrappeClient`, no per-form store, no
-`depends_on`/permission evaluation, no docstatus lifecycle, no real save/list correctness (C1–C10
-mostly still open — Wave 0 fixed the *foundation*, not the *defects*). Don't read a green Wave 0
-gate as "the app works."
+C1–C10 mostly still open at the UI level: `FormController`/`useFormController`/`SmartForm`/
+`SmartList` don't consume the new client/store/evaluators yet — Wave 1 built the contracts, Wave 2
+wires them into the actual form/list engines. Don't read a green gate here as "the app works" —
+it means the foundation and the frozen contracts are solid to build Wave 2 on.

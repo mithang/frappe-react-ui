@@ -169,50 +169,9 @@ export const useDocumentStore = create<DocumentState & DocumentActions>()(
     }))
 );
 
-// ============================================================================
-// UI Store - Manages global UI state
-// ============================================================================
-
-interface UIState {
-    sidebarCollapsed: boolean;
-    currentWorkspace: string | null;
-    theme: 'light' | 'dark' | 'system';
-    toasts: Array<{
-        id: string;
-        type: 'success' | 'error' | 'warning' | 'info';
-        title: string;
-        message?: string;
-    }>;
-}
-
-interface UIActions {
-    toggleSidebar: () => void;
-    setSidebarCollapsed: (collapsed: boolean) => void;
-    setCurrentWorkspace: (workspace: string | null) => void;
-    setTheme: (theme: 'light' | 'dark' | 'system') => void;
-    addToast: (toast: Omit<UIState['toasts'][0], 'id'>) => void;
-    removeToast: (id: string) => void;
-}
-
-export const useUIStore = create<UIState & UIActions>()((set, get) => ({
-    sidebarCollapsed: false,
-    currentWorkspace: null,
-    theme: 'system',
-    toasts: [],
-
-    toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
-    setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-    setCurrentWorkspace: (workspace) => set({ currentWorkspace: workspace }),
-    setTheme: (theme) => set({ theme }),
-
-    addToast: (toast) => {
-        const id = `toast_${Date.now()}`;
-        set({ toasts: [...get().toasts, { ...toast, id }] });
-        // Auto-remove after 5 seconds
-        setTimeout(() => get().removeToast(id), 5000);
-    },
-
-    removeToast: (id) => {
-        set({ toasts: get().toasts.filter((t) => t.id !== id) });
-    },
-}));
+// UI state moved to src/store/uiStore.ts (1B) — useUIStore had zero importers here, so this was
+// a pure relocation, not a migration. currentDoc/fieldOverrides above are the real per-app-wide
+// store that's the actual bug (C1/A1); replacing it is a bigger migration than a rename — see
+// src/store/formStore.ts (its replacement) and the 4 remaining consumers of useDocumentStore
+// (FormController.ts, useFormController.ts, LinkField.tsx — all Wave 2 owned files, not yet
+// migrated) plus FieldDispatcher.tsx (migrated in Wave 1, see below).

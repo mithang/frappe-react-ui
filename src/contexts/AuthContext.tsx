@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { getFrappeApp, initializeFrappe, STORAGE_KEY_URL } from '@/lib/frappe';
 
 interface User {
@@ -33,14 +34,16 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [erpnextUrl, setErpnextUrl] = useState<string>(() => {
-    // Get stored URL on initial load
+    // No public-demo-server default (that let a misconfigured build silently post real
+    // credentials to a server nobody chose) — get stored URL on initial load, or empty.
     if (typeof window !== 'undefined') {
-      return localStorage.getItem(STORAGE_KEY_URL) || 'https://demo.erpnext.com';
+      return localStorage.getItem(STORAGE_KEY_URL) || '';
     }
-    return 'https://demo.erpnext.com';
+    return '';
   });
 
   const checkAuth = async () => {
@@ -123,6 +126,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('Logout failed:', error);
     } finally {
       setUser(null);
+      // Non-negotiable: without this, the next user to log in on this device sees whatever
+      // documents/lists TanStack Query still has cached from the previous session.
+      queryClient.clear();
     }
   };
 
