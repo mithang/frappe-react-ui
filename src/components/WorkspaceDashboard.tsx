@@ -74,10 +74,9 @@ export function WorkspaceDashboard({ workspace, onShortcutClick }: WorkspaceDash
       case 'header':
         return (
           <div key={widget.id} className={`${colClass} mb-2 mt-4 first:mt-0`}>
-            <div
-              className="text-lg font-semibold tracking-tight text-foreground"
-              dangerouslySetInnerHTML={{ __html: widget.data.text || '' }}
-            />
+            <div className="text-lg font-semibold tracking-tight text-foreground">
+              {widget.data.text?.replace(/<[^>]*>?/gm, '') || ''}
+            </div>
           </div>
         );
 

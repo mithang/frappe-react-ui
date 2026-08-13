@@ -6,17 +6,26 @@ import { getFrappeApp } from '@/lib/frappe';
 
 interface QuickListProps {
   listName: string;
-  col: number;
+  col?: number;
 }
 
 interface QuickListItem {
   name: string;
-  title?: string;
   modified?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
-export function QuickListWidget({ listName, col }: QuickListProps) {
+const colClassMap: Record<number, string> = {
+  1: 'col-span-1',
+  2: 'col-span-2',
+  3: 'col-span-3',
+  4: 'col-span-4',
+  6: 'col-span-6',
+  8: 'col-span-8',
+  12: 'col-span-12',
+};
+
+export function QuickListWidget({ listName, col = 6 }: QuickListProps) {
   const [items, setItems] = useState<QuickListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -27,23 +36,22 @@ export function QuickListWidget({ listName, col }: QuickListProps) {
   const loadQuickListData = async () => {
     try {
       const frappe = getFrappeApp();
-      // Try to load the actual doctype data
+      // Fetch name and modified - avoid requesting 'title' unconditionally
       const response = await frappe.getDocList(listName, {
-        fields: ['name', 'title', 'modified'],
+        fields: ['name', 'modified'],
         limit_page_length: 5,
-        order_by: 'modified desc'
+        order_by: 'modified desc',
       });
-      setItems(response || []);
+      setItems((response as QuickListItem[]) || []);
     } catch (error) {
       console.error(`Failed to load quick list data for ${listName}:`, error);
-      // Set empty array on error
       setItems([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const colClass = `col-span-${Math.min(col, 12)}`;
+  const colClass = colClassMap[col] || 'col-span-full';
 
   if (isLoading) {
     return (
@@ -76,7 +84,7 @@ export function QuickListWidget({ listName, col }: QuickListProps) {
               items.map((item) => (
                 <div key={item.name} className="flex items-center justify-between py-1">
                   <span className="text-xs font-medium truncate">
-                    {item.title || item.name}
+                    {item.name}
                   </span>
                   <Badge variant="secondary" className="text-xs">
                     {item.modified ? new Date(item.modified).toLocaleDateString() : 'No date'}

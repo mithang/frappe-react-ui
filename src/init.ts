@@ -16,9 +16,26 @@ import { EventBus } from '@/core/eventbus/EventBus';
 
 let initialized = false;
 
+interface Registration {
+    name: string;
+    register: () => void | Promise<void>;
+}
+
+/**
+ * Registration modules run here rather than being separate hardcoded calls, so a later wave
+ * (e.g. 1C's NavRegistry/RouteRegistry/CommandRegistry/WidgetRegistry) adds one entry instead of
+ * editing initializeFramework's body. A failure in one registration is isolated — see below —
+ * so one broken module can't take the whole framework down before it starts.
+ */
+const registrations: Registration[] = [
+    { name: 'field-renderers', register: registerDefaultFieldRenderers },
+];
+
 /**
  * Initialize the Frappe Canvas framework
- * Call this once at app startup before rendering
+ * Call this once at app startup before rendering. Deliberately synchronous end-to-end for a
+ * synchronous `register()` (like field renderers today) — an `await`, even on a non-promise,
+ * defers a microtask, which would let the first render happen before registration completes.
  */
 export function initializeFramework(): void {
     if (initialized) {
@@ -28,8 +45,18 @@ export function initializeFramework(): void {
 
     console.log('[FrappeCanvas] Initializing framework...');
 
-    // Register default field renderers
-    registerDefaultFieldRenderers();
+    for (const { name, register } of registrations) {
+        try {
+            const result = register();
+            if (result instanceof Promise) {
+                result.catch((error) => {
+                    console.error(`[FrappeCanvas] Registration "${name}" failed:`, error);
+                });
+            }
+        } catch (error) {
+            console.error(`[FrappeCanvas] Registration "${name}" failed:`, error);
+        }
+    }
 
     // Set up global error handler for extensions
     EventBus.on('extension:loaded', ({ name }) => {

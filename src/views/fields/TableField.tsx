@@ -14,12 +14,12 @@ import {
 import { FieldDispatcher } from './FieldDispatcher';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export const TableField: React.FC<FieldRendererProps<any[]>> = ({
+export const TableField: React.FC<FieldRendererProps<Record<string, unknown>[]>> = ({
     field,
     value = [],
     onChange,
     disabled,
-    error,
+    doc,
 }) => {
     const [columns, setColumns] = useState<DocField[]>([]);
     const [loading, setLoading] = useState(false);
@@ -61,14 +61,17 @@ export const TableField: React.FC<FieldRendererProps<any[]>> = ({
     };
 
     const handleAddRow = () => {
-        const newrow = {
-            name: `new-table-row-${Math.random().toString(36).substring(7)}`,
+        const parentName = doc?.name ? String(doc.name) : '';
+        const parentType = doc?.doctype ? String(doc.doctype) : '';
+
+        const newrow: Record<string, unknown> = {
+            __islocal: 1,
             docstatus: 0,
-            parent: '',
-            parenttype: '',
+            doctype: childDocType,
+            parent: parentName,
+            parenttype: parentType,
             parentfield: field.fieldname,
-            idx: value.length + 1
-            // Initialize default values if available
+            idx: (value || []).length + 1,
         };
         onChange([...(value || []), newrow]);
     };
@@ -79,7 +82,7 @@ export const TableField: React.FC<FieldRendererProps<any[]>> = ({
         onChange(newValue);
     };
 
-    const handleCellChange = (rowIndex: number, fieldname: string, cellValue: any) => {
+    const handleCellChange = (rowIndex: number, fieldname: string, cellValue: unknown) => {
         const newValue = [...(value || [])];
         newValue[rowIndex] = { ...newValue[rowIndex], [fieldname]: cellValue };
         onChange(newValue);
@@ -119,7 +122,7 @@ export const TableField: React.FC<FieldRendererProps<any[]>> = ({
                     </TableHeader>
                     <TableBody>
                         {(value || []).map((row, rowIndex) => (
-                            <TableRow key={row.name || rowIndex}>
+                            <TableRow key={String(row.name || rowIndex)}>
                                 <TableCell className="text-xs text-muted-foreground text-center">
                                     {rowIndex + 1}
                                 </TableCell>
@@ -133,7 +136,7 @@ export const TableField: React.FC<FieldRendererProps<any[]>> = ({
                                                 doctype={childDocType}
                                                 disabled={disabled}
                                                 hideLabel={true}
-                                            // Error handling for cells can be added here
+                                                doc={row}
                                             />
                                         </div>
                                     </TableCell>
@@ -165,3 +168,4 @@ export const TableField: React.FC<FieldRendererProps<any[]>> = ({
         </div>
     );
 };
+

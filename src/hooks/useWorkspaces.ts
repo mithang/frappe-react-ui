@@ -51,17 +51,18 @@ export const useWorkspaces = () => {
 
       // Transform the API response to match our expected structure
       const pages = response.message?.pages || [];
-      const transformedWorkspaces = pages.map((page: any) => {
+      let widgetCounter = 0;
+      const transformedWorkspaces = pages.map((page: Record<string, unknown>) => {
         let widgets: WorkspaceWidget[] = [];
         let shortcuts: WorkspaceShortcut[] = [];
 
         try {
           // Parse the content JSON to extract widgets
-          const contentData = JSON.parse(page.content || '[]');
-          widgets = contentData.map((item: any) => ({
-            id: item.id || Math.random().toString(),
-            type: item.type,
-            data: item.data
+          const contentData = JSON.parse(String(page.content || '[]'));
+          widgets = contentData.map((item: Record<string, unknown>) => ({
+            id: String(item.id || `widget-${++widgetCounter}`),
+            type: item.type as WorkspaceWidget['type'],
+            data: item.data as WorkspaceWidget['data'],
           }));
 
           // Extract shortcuts from widgets
@@ -78,21 +79,22 @@ export const useWorkspaces = () => {
         }
 
         return {
-          name: page.name,
-          label: page.label || page.title,
-          icon: page.icon,
+          name: String(page.name || ''),
+          label: String(page.label || page.title || ''),
+          icon: page.icon ? String(page.icon) : undefined,
           is_workspace: true,
-          public: page.public,
+          public: Boolean(page.public),
           shortcuts,
           widgets,
-          content: page.content
+          content: String(page.content || '')
         };
       });
 
       setWorkspaces(transformedWorkspaces);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load workspaces:', err);
-      setError(err.message || 'Failed to load workspaces');
+      const errMsg = err instanceof Error ? err.message : 'Failed to load workspaces';
+      setError(errMsg);
     } finally {
       setIsLoading(false);
     }
