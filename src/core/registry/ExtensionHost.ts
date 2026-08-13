@@ -6,7 +6,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type { ClientScriptHooks, DocTypeComponents, FieldRenderer, FrappeFieldType } from '@/core/types';
 import { DocTypeRegistry } from './DocTypeRegistry';
 import { FieldRegistry } from './FieldRegistry';
-import { NavRegistry, type NavItem } from './NavRegistry';
+import { NavRegistry, type NavItem, type NavSlot, type NavPaneComponent } from './NavRegistry';
 import { RouteRegistry, type ExtensionRoute } from './RouteRegistry';
 import { FormRegistry, type FormButton, type FormSlotName } from './FormRegistry';
 import { ListRegistry, type ListBulkAction, type ListRowAction } from './ListRegistry';
@@ -24,7 +24,15 @@ export interface ExtensionHost {
     register: (fieldType: FrappeFieldType | string, renderer: FieldRenderer) => void;
     registerOverride: (doctype: string, fieldname: string, renderer: FieldRenderer) => void;
   };
-  nav: { addItem: (item: NavItem) => () => void };
+  /** Navigation. `addItem` injects a link; the rest replace or augment the panes themselves.
+   *  Overrides resolve most-specific-first: panelFor(workspace) -> panel -> the built-in. */
+  nav: {
+    addItem: (item: NavItem) => () => void;
+    addSlot: (slot: NavSlot, node: ReactNode) => () => void;
+    registerRail: (component: NavPaneComponent) => () => void;
+    registerPanel: (component: NavPaneComponent) => () => void;
+    registerPanelFor: (workspace: string, component: NavPaneComponent) => () => void;
+  };
   routes: { add: (route: ExtensionRoute) => () => void };
   forms: {
     addButton: (doctype: string, button: FormButton) => () => void;
@@ -39,7 +47,9 @@ export interface ExtensionHost {
   scripts: { on: (doctype: string, hooks: ClientScriptHooks) => () => void };
 }
 
-export function createExtensionHost(): ExtensionHost {
+/** @param extensionName attributed to any component this extension registers, so a render-time
+ *  crash names the culprit rather than blanking a pane anonymously. */
+export function createExtensionHost(extensionName?: string): ExtensionHost {
   return {
     doctypes: {
       registerForm: (doctype, component) => DocTypeRegistry.register(doctype, { Form: component }),
@@ -50,7 +60,16 @@ export function createExtensionHost(): ExtensionHost {
       register: (fieldType, renderer) => FieldRegistry.register(fieldType, renderer),
       registerOverride: (doctype, fieldname, renderer) => FieldRegistry.registerOverride(doctype, fieldname, renderer),
     },
-    nav: { addItem: (item) => NavRegistry.addItem(item) },
+    // The extension's name rides along on component/slot registrations so a crash can be
+    // attributed to it by ExtensionErrorBoundary instead of surfacing as an anonymous blank pane.
+    nav: {
+      addItem: (item) => NavRegistry.addItem(item),
+      addSlot: (slot, node) => NavRegistry.addSlot(slot, node, extensionName),
+      registerRail: (component) => NavRegistry.registerRail(component, extensionName),
+      registerPanel: (component) => NavRegistry.registerPanel(component, extensionName),
+      registerPanelFor: (workspace, component) =>
+        NavRegistry.registerPanelFor(workspace, component, extensionName),
+    },
     routes: { add: (route) => RouteRegistry.add(route) },
     forms: {
       addButton: (doctype, button) => FormRegistry.addButton(doctype, button),

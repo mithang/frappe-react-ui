@@ -30,6 +30,14 @@ export function NumberCardWidget({ cardName }: NumberCardProps) {
     setIsLoading(true);
     try {
       const client = getFrappeClient();
+
+      // client.getDoc IS frappe.desk.form.load.getdoc — the same endpoint Desk uses via
+      // frappe.model.with_doc, with the same permission behaviour. Don't reach for
+      // client.call('frappe.desk.form.load.getdoc') instead: call() returns `body.message`,
+      // and getdoc has no `message` key (it replies { docs, docinfo, _link_titles }). That
+      // yields undefined for a card that exists, and `[]` for one that doesn't — and `[]` is
+      // truthy, so it sailed past the guard and posted doc:"[]", which the server parsed as a
+      // list and died on with "AttributeError: 'list' object has no attribute 'function'".
       const { doc } = await client.getDoc('Number Card', cardName);
 
       const filters = (() => {

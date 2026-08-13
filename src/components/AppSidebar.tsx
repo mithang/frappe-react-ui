@@ -12,11 +12,12 @@ import {
 } from "lucide-react"
 
 import { useWorkspaces } from '@/hooks/useWorkspaces'
+import { useCommand } from '@/contexts/CommandContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { resolveLucideIcon } from '@/lib/icons'
 
 import { NavDocuments } from "@/components/nav-documents"
-import { NavMain } from "@/components/nav-main"
+import { NavPanel } from "@/components/nav/NavPanel"
 import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -30,41 +31,22 @@ import {
 } from "@/components/ui/sidebar"
 import { Link } from "react-router-dom"
 
-const navSecondary = [
-  {
-    title: "Settings",
-    url: "#",
-    icon: SettingsIcon,
-  },
-  {
-    title: "Get Help",
-    url: "#",
-    icon: HelpCircleIcon,
-  },
-  {
-    title: "Search",
-    url: "#",
-    icon: SearchIcon,
-  },
-]
-
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { workspaces, isLoading } = useWorkspaces()
   const { user } = useAuth()
+  const { toggle: toggleCommandPalette } = useCommand()
 
-  // Transform Frappe workspaces into Shadcn Sidebar items
-  const navMain = React.useMemo(() => {
-    if (!workspaces) return []
-    return workspaces.map(ws => ({
-      title: ws.label,
-      url: `/workspace/${ws.name}`,
-      icon: resolveLucideIcon(ws.icon, FileText),
-      items: ws.shortcuts?.map(sc => ({
-        title: sc.label,
-        url: sc.link_to ? `/doctype/${sc.link_to}` : '#',
-      }))
-    }))
-  }, [workspaces])
+  // Search opens the command palette that already exists (Cmd+K). Settings and Get Help have no
+  // destination in this app yet, so they render disabled rather than as links to nowhere.
+  const navSecondary = React.useMemo(
+    () => [
+      { title: 'Settings', icon: SettingsIcon },
+      { title: 'Get Help', icon: HelpCircleIcon },
+      { title: 'Search', icon: SearchIcon, onClick: toggleCommandPalette },
+    ],
+    [toggleCommandPalette]
+  )
+
 
   // Extract Top 5 shortcuts across all workspaces for NavDocuments
   const shortcuts = React.useMemo(() => {
@@ -105,9 +87,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        {/* The current workspace's own grouped nav. Workspace switching moved to the rail
+            (WorkspaceRail), so this pane shows one workspace at a time, as Desk does. */}
+        <NavPanel />
         {!isLoading && (
           <>
-            <NavMain items={navMain} />
             {shortcuts.length > 0 && <NavDocuments items={shortcuts} />}
             <NavSecondary items={navSecondary} className="mt-auto" />
           </>

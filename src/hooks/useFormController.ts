@@ -12,6 +12,7 @@ import { FormControllerImpl, createFormController, createNewDocument, type Docst
 interface UseFormControllerOptions {
     doctype: string;
     name?: string;
+    prefill?: Record<string, any>;
     onSave?: (doc: Document) => void;
     onError?: (error: Error) => void;
 }
@@ -41,7 +42,7 @@ interface UseFormControllerReturn {
  * (e.g. a quick-entry dialog over a list) have fully independent state — the A1 fix.
  */
 export function useFormController(options: UseFormControllerOptions): UseFormControllerReturn {
-    const { doctype, name, onSave, onError } = options;
+    const { doctype, name, prefill, onSave, onError } = options;
     const isNew = !name || name === 'new';
 
     const [frm, setFrm] = useState<FormControllerImpl | null>(null);
@@ -71,10 +72,19 @@ export function useFormController(options: UseFormControllerOptions): UseFormCon
                 if (!mounted) return;
                 setMeta(docMeta);
 
-                const doc = isNew ? createNewDocument(doctype, docMeta) : (await client.getDoc(doctype, name!)).doc;
+                let initialDoc: Document;
+                if (isNew) {
+                    initialDoc = createNewDocument(doctype, docMeta);
+                    if (prefill) {
+                        initialDoc = { ...initialDoc, ...prefill };
+                    }
+                } else {
+                    initialDoc = (await client.getDoc(doctype, name!)).doc;
+                }
+
                 if (!mounted) return;
 
-                storeRef.current!.getState().resetTo(doc);
+                storeRef.current!.getState().resetTo(initialDoc);
                 const controller = createFormController(storeRef.current!, docMeta, isNew, client);
                 setFrm(controller);
 

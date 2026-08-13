@@ -93,7 +93,7 @@ export const FieldDispatcher: React.FC<FieldDispatcherProps> = ({
                 </label>
             )}
             <FieldComponent {...props} />
-            {effectiveField.description && (
+            {effectiveField.description && !hideLabel && (
                 <p className="text-xs text-muted-foreground">{effectiveField.description}</p>
             )}
             {error && (

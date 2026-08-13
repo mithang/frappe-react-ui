@@ -55,6 +55,25 @@ vi.mock('@/lib/frappe', () => ({
   }),
 }));
 
+// ReportRunner talks to the FrappeClient directly (not the deprecated shim).
+vi.mock('@/lib/api/client', () => ({
+  getFrappeClient: () => ({
+    call: (method: string, args?: unknown) => callMock(method, args).then((r: any) => r?.message ?? r),
+  }),
+}));
+
+// Filter definitions live inside the report's own JS; evaluating that is covered separately, so
+// here we hand the component one filter and assert the behaviour that depends on it.
+vi.mock('@/lib/frappe/reportScript', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/frappe/reportScript')>();
+  return {
+    ...actual,
+    getReportFilterDefs: vi.fn().mockResolvedValue([
+      { fieldname: 'company', label: 'Company', fieldtype: 'Data', reqd: 1, default: 'ACME' },
+    ]),
+  };
+});
+
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { full_name: 'Jane User', email: 'jane@example.com' },
@@ -112,14 +131,31 @@ describe('Wave 3A: DocInfoSidebar', () => {
 // Wave 4B: ReportRunner
 // ============================================================================
 describe('Wave 4B: ReportRunner', () => {
+  const renderReport = () =>
+    render(
+      <MemoryRouter>
+        <ReportRunner reportName="Sales Analytics" />
+      </MemoryRouter>
+    );
+
   it('runs query report on mount and displays columns and result rows', async () => {
-    render(<ReportRunner reportName="Sales Analytics" />);
+    renderReport();
     expect(await screen.findByText('Sales Analytics')).toBeDefined();
     expect(await screen.findByText('SO-001')).toBeDefined();
   });
 
+  it("seeds filters from the report's own defaults before running", async () => {
+    // Running with {} makes any report with mandatory filters return zero rows, so the defaults
+    // declared in its script have to reach the query.
+    renderReport();
+    await screen.findByText('SO-001');
+
+    const runCall = callMock.mock.calls.find((args) => args[0] === 'frappe.desk.query_report.run');
+    expect(runCall?.[1]).toMatchObject({ filters: { company: 'ACME' } });
+  });
+
   it('does NOT re-run report on every keystroke (regression: infinite loop)', async () => {
-    render(<ReportRunner reportName="Sales Analytics" />);
+    renderReport();
     // Wait for initial mount load to complete
     await screen.findByText('SO-001');
 
@@ -127,8 +163,8 @@ describe('Wave 4B: ReportRunner', () => {
       (args) => args[0] === 'frappe.desk.query_report.run'
     ).length;
 
-    // Typing in filter input must NOT trigger additional API calls
-    const input = screen.getByPlaceholderText('Filter by keyword...');
+    // Typing in a filter must NOT trigger additional API calls — only Run Report does.
+    const input = screen.getByDisplayValue('ACME');
     fireEvent.change(input, { target: { value: 'test' } });
     fireEvent.change(input, { target: { value: 'test2' } });
     fireEvent.change(input, { target: { value: 'test3' } });
