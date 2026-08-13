@@ -25,7 +25,9 @@ import { ChevronLeft, ChevronRight, SlidersHorizontal, PlusCircle, GripVertical,
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/format/formatDate';
 import { exportList } from '@/lib/export';
-import type { Document } from '@/core/types';
+import { resolveListColumns, type ListViewSettings } from '@/lib/listColumns';
+import { getFrappeClient } from '@/lib/api/client';
+import type { Document, DocTypeMeta, DocField } from '@/core/types';
 import SmartForm from '@/views/forms/SmartForm';
 
 /**
@@ -83,11 +85,51 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
     React.useEffect(() => {
         // Reset selected document (close sheet) when navigating between different list views
         setSelectedDocName(null);
-        
+
         if (meta && meta.issingle) {
             navigate(`/doctype/${doctype}/${doctype}`, { replace: true });
         }
     }, [meta, doctype, navigate]);
+
+    // Ordering half of List View Settings (the selection half already rides along on meta's
+    // in_list_view flags — see lib/listColumns.ts). Absent settings return {}, which is fine.
+    const [listSettings, setListSettings] = useState<ListViewSettings | null>(null);
+    React.useEffect(() => {
+        let cancelled = false;
+        getFrappeClient()
+            .call<ListViewSettings>('frappe.desk.listview.get_list_settings', { doctype })
+            .then((s) => !cancelled && setListSettings(s ?? null))
+            .catch(() => !cancelled && setListSettings(null));
+        return () => {
+            cancelled = true;
+        };
+    }, [doctype]);
+
+    const columns = React.useMemo(() => resolveListColumns(meta, listSettings), [meta, listSettings]);
+
+    // Derived from `columns`, NOT captured once by useState — `meta` is null on first render, so
+    // seeding this from useState's initializer froze it at the pre-meta value forever and the
+    // table rendered only its two hardcoded columns (ID and Status) no matter what the doctype
+    // declared. `null` means ""user hasn't customised the picker yet, show everything".
+    const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+    React.useEffect(() => {
+        // A different doctype's hidden set is meaningless here.
+        setHiddenColumns(new Set());
+    }, [doctype]);
+    const visibleColumns = React.useMemo(
+        () => columns.filter((c) => !hiddenColumns.has(c)),
+        [columns, hiddenColumns]
+    );
+
+    const fieldByName = React.useMemo(
+        () => new Map((meta?.fields ?? []).map((f) => [f.fieldname, f])),
+        [meta]
+    );
+
+    // The DocType's own `status` field (Sales Invoice: "Unpaid"/"Paid"/"Overdue") is strictly more
+    // informative than the docstatus badge, and rendering both produced two adjacent columns both
+    // headed "Status". Show the real field when it exists, fall back to the badge when it doesn't.
+    const hasStatusColumn = visibleColumns.includes('status');
 
     if (error) {
         const isSingleError = error.includes('TableMissingError') || error.includes('issingle');
@@ -168,12 +210,6 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
             toast({ title: 'Error', description: 'Failed to export records', variant: 'destructive' });
         }
     };
-
-    const listFields = meta?.fields?.filter((f) => f.in_list_view) || [];
-    const columns = listFields.length > 0 ? listFields.map(f => f.fieldname) : ['modified'];
-    
-    // Customize columns UI state
-    const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(columns.slice(0, 4)));
 
     const totalPages = total !== null ? Math.ceil(total / pageSize) : null;
     const isSheetOpen = selectedDocName !== null;
@@ -275,14 +311,17 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                                                 <DropdownMenuCheckboxItem
                                                     key={col}
                                                     className="capitalize"
-                                                    checked={visibleColumns.has(col)}
+                                                    checked={!hiddenColumns.has(col)}
                                                     onCheckedChange={(checked) => {
-                                                        const newVis = new Set(visibleColumns);
-                                                        checked ? newVis.add(col) : newVis.delete(col);
-                                                        setVisibleColumns(newVis);
+                                                        setHiddenColumns((prev) => {
+                                                            const next = new Set(prev);
+                                                            if (checked) next.delete(col);
+                                                            else next.add(col);
+                                                            return next;
+                                                        });
                                                     }}
                                                 >
-                                                    {col.replace(/_/g, ' ')}
+                                                    {columnLabel(meta, col)}
                                                 </DropdownMenuCheckboxItem>
                                             ))}
                                         </DropdownMenuContent>
@@ -311,25 +350,27 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                                                 />
                                             </TableHead>
                                             <TableHead className="text-sm font-medium text-muted-foreground">Name</TableHead>
-                                            {columns.filter(c => visibleColumns.has(c) && c !== 'name' && c !== 'docstatus').map((col) => (
-                                                <TableHead key={col} className="capitalize text-sm font-medium text-muted-foreground">
-                                                    {col.replace(/_/g, ' ')}
+                                            {visibleColumns.filter(c => c !== 'docstatus').map((col) => (
+                                                <TableHead key={col} className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+                                                    {columnLabel(meta, col)}
                                                 </TableHead>
                                             ))}
-                                            <TableHead className="text-sm font-medium text-muted-foreground">Status</TableHead>
+                                            {!hasStatusColumn && (
+                                                <TableHead className="text-sm font-medium text-muted-foreground">Status</TableHead>
+                                            )}
                                             <TableHead className="w-[50px]"></TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {isLoading ? (
                                             <TableRow>
-                                                <TableCell colSpan={visibleColumns.size + 4} className="h-24 text-center">
+                                                <TableCell colSpan={visibleColumns.length + 4} className="h-24 text-center">
                                                     Loading...
                                                 </TableCell>
                                             </TableRow>
                                         ) : filteredData.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={visibleColumns.size + 4} className="h-24 text-center">
+                                                <TableCell colSpan={visibleColumns.length + 4} className="h-24 text-center">
                                                     No results.
                                                 </TableCell>
                                             </TableRow>
@@ -353,14 +394,16 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
                                                         />
                                                     </TableCell>
                                                     <TableCell className="font-medium text-foreground py-3">{item.name}</TableCell>
-                                                    {columns.filter(c => visibleColumns.has(c) && c !== 'name' && c !== 'docstatus').map((col) => (
+                                                    {visibleColumns.filter(c => c !== 'docstatus').map((col) => (
                                                         <TableCell key={col} className="py-3">
-                                                            {formatCellValue(item[col], col)}
+                                                            {formatCellValue(item[col], col, fieldByName.get(col))}
                                                         </TableCell>
                                                     ))}
-                                                    <TableCell className="py-3">
-                                                        <DocstatusBadge docstatus={item.docstatus} />
-                                                    </TableCell>
+                                                    {!hasStatusColumn && (
+                                                        <TableCell className="py-3">
+                                                            <DocstatusBadge docstatus={item.docstatus} />
+                                                        </TableCell>
+                                                    )}
                                                     <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
@@ -462,9 +505,22 @@ const DefaultList: React.FC<DefaultListProps> = ({ doctype }) => {
 // Helper Functions
 // ============================================================================
 
-function formatCellValue(value: Document[string], column: string): string {
-    if (value === null || value === undefined) return '-';
-    if (column === 'creation' || column === 'modified') return formatDate(value);
+/** The DocType's own label for a column, falling back to a de-underscored fieldname. Using the
+ *  real label matters for fields whose fieldname reads nothing like the UI term users know
+ *  (e.g. `base_rounded_total` → "Rounded Total (Company Currency)"). */
+function columnLabel(meta: DocTypeMeta | null, fieldname: string): string {
+    const df = meta?.fields?.find((f) => f.fieldname === fieldname);
+    return df?.label || fieldname.replace(/_/g, ' ');
+}
+
+function formatCellValue(value: Document[string], column: string, df?: DocField): string {
+    if (value === null || value === undefined || value === '') return '-';
+    if (column === 'creation' || column === 'modified' || df?.fieldtype === 'Date' || df?.fieldtype === 'Datetime') {
+        return formatDate(value);
+    }
+    // Frappe sends Check fields as 0/1 integers, never JS booleans — without the fieldtype these
+    // rendered as a bare "0"/"1", which reads as a quantity rather than a yes/no.
+    if (df?.fieldtype === 'Check') return value ? 'Yes' : 'No';
     if (typeof value === 'boolean') return value ? 'Yes' : 'No';
     return String(value);
 }

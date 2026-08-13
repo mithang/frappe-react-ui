@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { useQueryClient } from '@tanstack/react-query';
 import { getFrappeApp, initializeFrappe, STORAGE_KEY_URL } from '@/lib/frappe';
 import { discoverAndInstallExtensions } from '@/core/registry/discoverExtensions';
+import { setEvalSessionUser } from '@/lib/expr/evalScope';
 
 interface User {
   name: string;
@@ -137,6 +138,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Check for existing session on startup
     checkAuth();
   }, []);
+
+  // Keeps `frappe.session.user` resolvable inside depends_on expressions (e.g. the real
+  // `eval:doc.name == frappe.session.user` on User). Nothing else in the app reads this.
+  useEffect(() => {
+    setEvalSessionUser(user?.name ?? null);
+  }, [user]);
 
   // Extension discovery (3C) needs an authenticated session — its RPCs (e.g.
   // frappe.utils.change_log.get_versions) aren't guest-accessible, and calling it at raw app

@@ -90,10 +90,16 @@ export class ListController {
     }
 
     /** Every `in_list_view` field, plus `name`/`docstatus`, which the list UI always needs
-     *  (row key, and the real docstatus-based status badge — C8) regardless of DocType config. */
+     *  (row key, and the real docstatus-based status badge — C8) regardless of DocType config,
+     *  plus `title_field` — the list renders it as the leading human-readable column (Desk's
+     *  "Subject"), and it is frequently NOT flagged in_list_view (Sales Invoice's customer_name,
+     *  Item's item_name), so omitting it here left that column fetching nothing and showing "-". */
     private defaultListFields(): string[] {
         const inListView = (this.meta?.fields ?? []).filter((f) => f.in_list_view).map((f) => f.fieldname);
-        return Array.from(new Set(['name', 'docstatus', 'modified', ...inListView]));
+        const titleField = this.meta?.title_field;
+        return Array.from(
+            new Set(['name', 'docstatus', 'modified', ...(titleField ? [titleField] : []), ...inListView])
+        );
     }
 
     async load(options: ListOptions = {}): Promise<void> {
