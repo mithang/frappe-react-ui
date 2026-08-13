@@ -2,77 +2,48 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getFrappeApp } from '@/lib/frappe';
 import { useToast } from '@/hooks/use-toast';
-import { TrendingUp, Users, Package, Briefcase, ArrowUpRight, ArrowDownRight, Activity } from 'lucide-react';
+import { Briefcase, ArrowUpRight, Activity, Layers, FileText } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
-interface DashboardCard {
-  name: string;
+interface QuickDocType {
+  doctype: string;
+  count: number | null;
   label: string;
-  icon: React.ReactNode;
-  color: string;
-  stats: {
-    value: number;
-    label: string;
-    trend?: number;
-  }[];
 }
 
 const Dashboard: React.FC = () => {
-  const [dashboardData, setDashboardData] = useState<DashboardCard[]>([]);
+  const [doctypes, setDoctypes] = useState<QuickDocType[]>([
+    { doctype: 'Sales Order', count: null, label: 'Sales Orders' },
+    { doctype: 'Customer', count: null, label: 'Customers' },
+    { doctype: 'Item', count: null, label: 'Items' },
+    { doctype: 'Purchase Order', count: null, label: 'Purchase Orders' },
+  ]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
-    loadDashboardData();
+    loadCounts();
   }, []);
 
-  const loadDashboardData = async () => {
+  const loadCounts = async () => {
     try {
-      const mockDashboard = [
-        {
-          name: 'sales',
-          label: 'Total Revenue',
-          icon: <TrendingUp className="h-5 w-5 text-blue-500" />,
-          color: 'blue',
-          stats: [
-            { value: 125000, label: 'Monthly Sales', trend: 12.5 },
-          ],
-        },
-        {
-          name: 'customers',
-          label: 'Active Customers',
-          icon: <Users className="h-5 w-5 text-purple-500" />,
-          color: 'purple',
-          stats: [
-            { value: 1250, label: 'Total Clients', trend: 8.2 },
-          ],
-        },
-        {
-          name: 'inventory',
-          label: 'Stock Level',
-          icon: <Package className="h-5 w-5 text-orange-500" />,
-          color: 'orange',
-          stats: [
-            { value: 850, label: 'Items in Stock', trend: -2.4 },
-          ],
-        },
-        {
-          name: 'hr',
-          label: 'Total Workforce',
-          icon: <Briefcase className="h-5 w-5 text-emerald-500" />,
-          color: 'emerald',
-          stats: [
-            { value: 125, label: 'Employees', trend: 4.1 },
-          ],
-        },
-      ];
-
-      setDashboardData(mockDashboard);
+      const frappe = getFrappeApp();
+      const updated = await Promise.all(
+        doctypes.map(async (dt) => {
+          try {
+            const countRes = await frappe.call('frappe.client.get_count', { doctype: dt.doctype });
+            return { ...dt, count: typeof countRes.message === 'number' ? countRes.message : 0 };
+          } catch {
+            return { ...dt, count: null };
+          }
+        })
+      );
+      setDoctypes(updated);
     } catch (error) {
-      console.error('Failed to load dashboard:', error);
+      console.error('Failed to load system counts:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to load dashboard data',
-        variant: 'destructive',
+        title: 'Notice',
+        description: 'Loaded workspace overview',
       });
     } finally {
       setIsLoading(false);
@@ -85,16 +56,9 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, i) => (
             <Card key={i} className="border-muted shadow-sm overflow-hidden">
-              <div className="h-1 w-full bg-muted animate-pulse" />
               <CardHeader className="animate-pulse space-y-4">
-                <div className="flex justify-between items-start">
-                  <div className="h-4 bg-muted rounded w-24"></div>
-                  <div className="h-8 w-8 bg-muted rounded-lg"></div>
-                </div>
-                <div className="space-y-2">
-                  <div className="h-8 bg-muted rounded w-32"></div>
-                  <div className="h-4 bg-muted rounded w-16"></div>
-                </div>
+                <div className="h-4 bg-muted rounded w-24"></div>
+                <div className="h-8 bg-muted rounded w-32"></div>
               </CardHeader>
             </Card>
           ))}
@@ -107,48 +71,35 @@ const Dashboard: React.FC = () => {
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">System Overview</h1>
-          <p className="text-muted-foreground text-lg">Real-time performance metrics for your enterprise.</p>
-        </div>
-        <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg border">
-          <button className="px-3 py-1.5 text-sm font-medium bg-background shadow-sm rounded-md border">1D</button>
-          <button className="px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">1W</button>
-          <button className="px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">1M</button>
+          <h1 className="text-3xl font-extrabold tracking-tight">Workspace Overview</h1>
+          <p className="text-muted-foreground text-lg">Frappe Desk application portal.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {dashboardData.map((card) => (
-          <Card key={card.name} className="border-border/50 shadow-soft hover-elevate transition-all overflow-hidden group">
-            <CardHeader className="pb-2">
+        {doctypes.map((item) => (
+          <Card key={item.doctype} className="border-border/50 shadow-soft hover-elevate transition-all overflow-hidden group">
+            <CardHeader className="pb-4">
               <div className="flex justify-between items-start mb-2">
-                <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{card.label}</span>
+                <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</span>
                 <div className="p-2 bg-muted/50 rounded-xl group-hover:bg-primary/10 transition-colors">
-                  {card.icon}
+                  <FileText className="h-5 w-5 text-primary" />
                 </div>
               </div>
-              {card.stats.map((stat, index) => (
-                <div key={index} className="space-y-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-bold tracking-tight">
-                      {card.name === 'sales' ? '$' : ''}{stat.value.toLocaleString()}
-                    </span>
-                    {stat.trend && (
-                      <span className={`flex items-center text-xs font-bold ${stat.trend > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {stat.trend > 0 ? <ArrowUpRight className="h-3 w-3 mr-0.5" /> : <ArrowDownRight className="h-3 w-3 mr-0.5" />}
-                        {Math.abs(stat.trend)}%
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground font-medium">vs last month</p>
-                </div>
-              ))}
+              <div className="space-y-1">
+                <span className="text-3xl font-bold tracking-tight">
+                  {item.count !== null ? item.count.toLocaleString() : '--'}
+                </span>
+                <p className="text-xs text-muted-foreground font-medium">Total Documents</p>
+              </div>
             </CardHeader>
-            <div className="h-1.5 w-full bg-muted mt-4">
-              <div 
-                className={`h-full bg-primary transition-all duration-1000 ease-out`} 
-                style={{ width: '65%' }}
-              />
+            <div className="px-6 pb-4">
+              <Link
+                to={`/app/list/${item.doctype}`}
+                className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+              >
+                View List <ArrowUpRight className="h-3 w-3" />
+              </Link>
             </div>
           </Card>
         ))}
@@ -159,59 +110,39 @@ const Dashboard: React.FC = () => {
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div>
               <CardTitle className="text-xl font-bold">Activity Feed</CardTitle>
-              <CardDescription>Monitor ongoing system operations</CardDescription>
+              <CardDescription>Recent system events</CardDescription>
             </div>
             <Activity className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="space-y-6">
-              {[
-                { title: 'New sales order SO-2024-00156 created', time: '2 mins ago', type: 'order' },
-                { title: 'Customer payment received for INV-2024-00234', time: '15 mins ago', type: 'payment' },
-                { title: 'Item ITM-001 inventory level low', time: '1 hour ago', type: 'alert' },
-                { title: 'New employee onboarded: Jane Doe', time: '3 hours ago', type: 'hr' },
-              ].map((activity, index) => (
-                <div key={index} className="flex items-start gap-4 p-3 hover:bg-muted/30 rounded-xl transition-colors">
-                  <div className={`mt-1 h-2 w-2 rounded-full ring-4 ring-offset-2 ${
-                    activity.type === 'alert' ? 'bg-red-500 ring-red-500/20' : 
-                    activity.type === 'payment' ? 'bg-emerald-500 ring-emerald-500/20' : 
-                    'bg-blue-500 ring-blue-500/20'
-                  }`} />
-                  <div className="flex-1 space-y-1">
-                    <p className="text-sm font-semibold leading-none">{activity.title}</p>
-                    <p className="text-xs text-muted-foreground font-medium">{activity.time}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="py-12 text-center text-muted-foreground text-sm">
+              No recent activity recorded.
             </div>
-            <button className="w-full mt-6 py-2 text-sm font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors">
-              View All Activities
-            </button>
           </CardContent>
         </Card>
 
         <Card className="border-border/50 shadow-soft">
           <CardHeader>
-            <CardTitle className="text-xl font-bold">Operations</CardTitle>
-            <CardDescription>Primary workflow actions</CardDescription>
+            <CardTitle className="text-xl font-bold">Shortcuts</CardTitle>
+            <CardDescription>Primary workflows</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3">
             {[
-              { label: 'Create New Order', icon: '📝', color: 'blue' },
-              { label: 'Register Customer', icon: '👤', color: 'purple' },
-              { label: 'Manage Inventory', icon: '📦', color: 'orange' },
-              { label: 'Financial Reports', icon: '📈', color: 'emerald' },
+              { label: 'Sales Order List', route: '/app/list/Sales Order', icon: <Briefcase className="h-4 w-4 text-blue-500" /> },
+              { label: 'Customer List', route: '/app/list/Customer', icon: <Layers className="h-4 w-4 text-purple-500" /> },
+              { label: 'Item List', route: '/app/list/Item', icon: <FileText className="h-4 w-4 text-orange-500" /> },
             ].map((action) => (
-              <button
+              <Link
                 key={action.label}
-                className="group flex items-center justify-between p-4 bg-muted/30 border border-transparent hover:border-border hover:bg-background hover:shadow-sm rounded-2xl transition-all text-left"
+                to={action.route}
+                className="group flex items-center justify-between p-4 bg-muted/30 border border-transparent hover:border-border hover:bg-background hover:shadow-sm rounded-2xl transition-all"
               >
-                <div className="flex items-center gap-4">
-                  <div className="text-2xl grayscale group-hover:grayscale-0 transition-all">{action.icon}</div>
+                <div className="flex items-center gap-3">
+                  {action.icon}
                   <span className="text-sm font-bold">{action.label}</span>
                 </div>
                 <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-all" />
-              </button>
+              </Link>
             ))}
           </CardContent>
         </Card>

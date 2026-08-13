@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "recordedFrom": "POST /api/method/frappe.client.insert",
+    "frappeVersion": "17.0.0-dev",
+    "httpStatus": 400,
+    "requestHeaders": {
+      "Origin": "http://evil.example.com",
+      "Cookie": "sid=<valid-session-with-issued-csrf-token>"
+    },
+    "note": "Origin not present in the bench's allowed_referrers, and no X-Frappe-CSRF-Token header sent. Only reproduces once the session has an issued CSRF token (see fixtures README)."
+  },
+  "exception": "frappe.exceptions.CSRFTokenError: Invalid Request",
+  "exc_type": "CSRFTokenError",
+  "_server_messages": "[\"{\\\"message\\\":\\\"Invalid Request\\\",\\\"as_table\\\":false,\\\"title\\\":\\\"Message\\\",\\\"indicator\\\":\\\"red\\\",\\\"raise_exception\\\":1,\\\"__frappe_exc_id\\\":\\\"9b8c0656a43f141f6c20ae952aa908548a078596a68daf1b6dd77b55\\\"}\"]"
+}

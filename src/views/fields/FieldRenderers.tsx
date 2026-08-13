@@ -360,17 +360,12 @@ export const RatingField: React.FC<FieldRendererProps<number>> = ({
     );
 };
 
-// ============================================================================
-// Read Only Field
-// ============================================================================
-
-export const ReadOnlyField: React.FC<FieldRendererProps<any>> = ({
-    field,
+export const ReadOnlyField: React.FC<FieldRendererProps<unknown>> = ({
     value,
 }) => {
     return (
         <div className="py-2 px-3 bg-muted rounded-md text-sm">
-            {value ?? '-'}
+            {value !== undefined && value !== null ? String(value) : '-'}
         </div>
     );
 };
@@ -380,6 +375,7 @@ export const ReadOnlyField: React.FC<FieldRendererProps<any>> = ({
 // ============================================================================
 
 export function registerDefaultFieldRenderers(): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const renderers: Record<FrappeFieldType, React.ComponentType<FieldRendererProps<any>>> = {
         'Data': DataField,
         'Password': PasswordField,
@@ -428,3 +424,4 @@ export function registerDefaultFieldRenderers(): void {
 
     console.log('[FieldRenderers] Registered default renderers for', Object.keys(renderers).length, 'field types');
 }
+

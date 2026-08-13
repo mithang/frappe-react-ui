@@ -24,6 +24,7 @@ interface FieldDispatcherProps {
     disabled?: boolean;
     error?: string;
     frm?: any;
+    doc?: any;
     hideLabel?: boolean;
 }
 
@@ -39,6 +40,7 @@ export const FieldDispatcher: React.FC<FieldDispatcherProps> = ({
     disabled,
     error,
     frm,
+    doc,
     hideLabel,
 }) => {
     const { fieldOverrides } = useDocumentStore();
@@ -72,6 +74,7 @@ export const FieldDispatcher: React.FC<FieldDispatcherProps> = ({
         disabled: disabled || effectiveField.read_only,
         error,
         frm,
+        doc,
     };
 
     return (

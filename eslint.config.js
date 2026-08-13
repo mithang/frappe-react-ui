@@ -5,7 +5,9 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  // docs/examples holds reference-only extension examples moved out of src/ (W0.3) — they
+  // import via the @/ alias, which only resolves inside the compiled src/ tree.
+  { ignores: ["dist", "docs"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

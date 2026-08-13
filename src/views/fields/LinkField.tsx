@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Check, ChevronsUpDown, Search } from 'lucide-react';
+import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
     Command,
     CommandEmpty,
-    CommandGroup,
     CommandInput,
     CommandItem,
     CommandList,
@@ -30,6 +29,7 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
     value,
     onChange,
     disabled,
+    doc,
 }) => {
     const { currentDoc } = useDocumentStore();
     const [open, setOpen] = useState(false);
@@ -42,8 +42,9 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
 
     const getTargetDocType = () => {
         if (field.fieldtype === 'Dynamic Link') {
-            if (!field.options || !currentDoc) return null;
-            return currentDoc[field.options];
+            const docContext = doc || currentDoc;
+            if (!field.options || !docContext) return null;
+            return docContext[field.options];
         }
         return field.options;
     };
@@ -52,7 +53,7 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
         if (open) {
             fetchOptions(debouncedSearch);
         }
-    }, [open, debouncedSearch, field.options, currentDoc]);
+    }, [open, debouncedSearch, field.options, currentDoc, doc]);
 
     const fetchOptions = async (txt: string) => {
         const targetDocType = getTargetDocType();
@@ -71,21 +72,12 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
                 page_length: 10,
             });
 
-            if (result.results) {
-                // Parse results - Frappe returns array of objects or array of arrays
-                const parsedOptions = result.results.map((item: any) => ({
-                    value: item.value,
-                    description: item.description
-                }));
-                setOptions(parsedOptions);
-            } else if (result.message) {
-                // Some versions return 'message'
-                const parsedOptions = result.message.map((item: any) => ({
-                    value: item.value,
-                    description: item.description
-                }));
-                setOptions(parsedOptions);
-            }
+            const rawOptions = result.results || result.message || [];
+            const parsedOptions: LinkOption[] = rawOptions.map((item: Record<string, unknown>) => ({
+                value: String(item.value || ''),
+                description: item.description ? String(item.description) : undefined,
+            }));
+            setOptions(parsedOptions);
         } catch (error) {
             console.error('Failed to fetch link options:', error);
         } finally {
@@ -132,7 +124,12 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
                                 key={option.value}
                                 value={option.value}
                                 onSelect={(currentValue) => {
-                                    onChange(currentValue === value ? "" : currentValue);
+                                    // cmdk lowercases value in onSelect. Map back to exact original casing!
+                                    const matched = options.find(
+                                        (opt) => opt.value.toLowerCase() === currentValue.toLowerCase()
+                                    );
+                                    const selectedVal = matched ? matched.value : option.value;
+                                    onChange(selectedVal === value ? "" : selectedVal);
                                     setOpen(false);
                                 }}
                             >
@@ -156,3 +153,4 @@ export const LinkField: React.FC<FieldRendererProps<string>> = ({
         </Popover>
     );
 };
+

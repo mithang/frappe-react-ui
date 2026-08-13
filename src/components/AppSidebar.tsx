@@ -1,21 +1,13 @@
 import React, { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarHeader,
-  SidebarFooter,
 } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { 
   ChevronRight, 
   LayoutDashboard, 
@@ -31,7 +23,7 @@ import {
   CreditCard 
 } from 'lucide-react';
 
-const iconMap: { [key: string]: React.ElementType } = {
+const iconMap: Record<string, React.ElementType> = {
   home: LayoutDashboard,
   users: Users,
   'shopping-cart': ShoppingCart,
@@ -47,7 +39,6 @@ const iconMap: { [key: string]: React.ElementType } = {
 };
 
 export function AppSidebar() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { workspaces, isLoading } = useWorkspaces();
@@ -61,14 +52,6 @@ export function AppSidebar() {
     );
   };
 
-  const handleItemClick = (shortcut: any) => {
-    if (shortcut.link_to) {
-      navigate(`/doctype/${shortcut.link_to}`);
-    } else if (shortcut.name === 'Dashboard') {
-      navigate('/');
-    }
-  };
-
   const getIcon = (iconName?: string) => {
     return iconMap[iconName || ''] || FileText;
   };
@@ -76,15 +59,15 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r-0 bg-sidebar-background">
       <SidebarHeader className="p-6 mb-4">
-        <div className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary shadow-lg shadow-primary/20 text-primary-foreground transform rotate-3">
-            <span className="text-lg font-black italic">E</span>
+            <span className="text-lg font-black italic">F</span>
           </div>
           <div>
-            <h2 className="text-sm font-black uppercase tracking-widest text-sidebar-foreground">Enterprise</h2>
-            <p className="text-[10px] font-bold text-sidebar-foreground/50 uppercase tracking-tighter">Systems v2.0</p>
+            <h2 className="text-sm font-black uppercase tracking-widest text-sidebar-foreground">Frappe</h2>
+            <p className="text-[10px] font-bold text-sidebar-foreground/50 uppercase tracking-tighter">React Desk</p>
           </div>
-        </div>
+        </Link>
       </SidebarHeader>
 
       <SidebarContent className="px-3">
@@ -97,40 +80,51 @@ export function AppSidebar() {
         ) : (
           (workspaces || []).map((workspace) => {
             const Icon = getIcon(workspace.icon);
+            const isOpen = openGroups.includes(workspace.name);
             return (
               <Collapsible
                 key={workspace.name}
-                open={openGroups.includes(workspace.name)}
+                open={isOpen}
                 onOpenChange={() => toggleGroup(workspace.name)}
                 className="mb-1"
               >
                 <SidebarGroup className="p-0">
-                  <CollapsibleTrigger asChild>
-                    <div
-                      className={`
-                        flex items-center gap-3 px-3 py-2.5 text-sm font-bold rounded-xl cursor-pointer transition-all group
-                        ${openGroups.includes(workspace.name) ? 'text-sidebar-foreground bg-sidebar-accent/30' : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/20'}
-                      `}
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
                       onClick={() => navigate(`/workspace/${workspace.name}`)}
+                      className={`
+                        flex-1 flex items-center gap-3 px-3 py-2.5 text-sm font-bold rounded-xl text-left transition-all group
+                        ${isOpen ? 'text-sidebar-foreground bg-sidebar-accent/30' : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/20'}
+                      `}
                     >
-                      <Icon className={`h-4 w-4 transition-transform group-hover:scale-110 ${openGroups.includes(workspace.name) ? 'text-primary' : ''}`} />
+                      <Icon className={`h-4 w-4 transition-transform group-hover:scale-110 ${isOpen ? 'text-primary' : ''}`} />
                       <span className="flex-1">{workspace.label}</span>
-                      <ChevronRight className={`h-3 w-3 transition-transform duration-300 ${openGroups.includes(workspace.name) ? 'rotate-90' : 'opacity-40'}`} />
-                    </div>
-                  </CollapsibleTrigger>
+                    </button>
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Toggle ${workspace.label}`}
+                        className="p-2.5 text-sidebar-foreground/60 hover:text-sidebar-foreground rounded-xl"
+                      >
+                        <ChevronRight className={`h-3 w-3 transition-transform duration-300 ${isOpen ? 'rotate-90' : ''}`} />
+                      </button>
+                    </CollapsibleTrigger>
+                  </div>
 
                   <CollapsibleContent>
                     <div className="mt-1 ml-4 pl-4 border-l-2 border-sidebar-accent/30 space-y-1">
                       {workspace.shortcuts.map((shortcut) => {
-                        const isActive = location.pathname.includes(shortcut.link_to || '');
+                        const targetPath = shortcut.link_to ? `/app/list/${shortcut.link_to}` : '/';
+                        const isActive = location.pathname === targetPath;
                         const SubIcon = getIcon(shortcut.icon);
 
                         return (
-                          <div
+                          <Link
                             key={shortcut.name}
-                            onClick={() => handleItemClick(shortcut)}
+                            to={targetPath}
                             className={`
-                              cursor-pointer text-xs font-bold px-4 py-2 flex items-center gap-3 transition-all rounded-lg
+                              text-xs font-bold px-4 py-2 flex items-center gap-3 transition-all rounded-lg
                               ${isActive
                                 ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
                                 : 'text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/20'
@@ -139,7 +133,7 @@ export function AppSidebar() {
                           >
                             <SubIcon className="h-3.5 w-3.5" />
                             <span>{shortcut.label}</span>
-                          </div>
+                          </Link>
                         );
                       })}
                     </div>
@@ -150,16 +144,6 @@ export function AppSidebar() {
           })
         )}
       </SidebarContent>
-
-      <SidebarFooter className="p-4 mt-auto">
-        <div className="p-4 bg-primary/10 rounded-2xl border border-primary/10">
-          <p className="text-[10px] font-black text-primary uppercase tracking-wider mb-1">Status</p>
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
-            <span className="text-xs font-bold text-sidebar-foreground/80">System Online</span>
-          </div>
-        </div>
-      </SidebarFooter>
     </Sidebar>
   );
 }

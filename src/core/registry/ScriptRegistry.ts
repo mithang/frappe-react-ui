@@ -62,7 +62,8 @@ class ScriptRegistryImpl {
             const hook = script.hooks[hookName];
             if (hook) {
                 try {
-                    const result = await (hook as FormHook | FieldHook)(frm, ...args);
+                    const anyHook = hook as (frm: FormController, ...rest: unknown[]) => void | boolean | Promise<void | boolean>;
+                    const result = await anyHook(frm, ...args);
                     // If validate hook returns false, stop execution
                     if (hookName === 'validate' && result === false) {
                         return false;

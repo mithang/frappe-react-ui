@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "recordedFrom": "POST /api/method/frappe.client.insert",
+    "frappeVersion": "17.0.0-dev",
+    "httpStatus": 200,
+    "requestHeaders": {
+      "Origin": "http://app.localtest.me:5000",
+      "Cookie": "sid=<valid-session-with-issued-csrf-token>"
+    },
+    "responseHeaders": {
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Allow-Origin": "http://app.localtest.me:5000",
+      "Vary": "Origin"
+    },
+    "note": "Origin matches the bench's allowed_referrers entry, no X-Frappe-CSRF-Token header sent — the allowed_referrers bypass is what let this through, confirmed by the CORS headers echoing the exact origin (never '*')."
+  },
+  "message": {
+    "name": "hv7mledf5k",
+    "owner": "Administrator",
+    "creation": "2026-08-13 09:22:16.727092",
+    "modified": "2026-08-13 09:22:16.727092",
+    "modified_by": "Administrator",
+    "docstatus": 0,
+    "idx": 0,
+    "status": "Open",
+    "priority": "Medium",
+    "color": null,
+    "date": "2026-08-13",
+    "allocated_to": null,
+    "description": "csrf-3-should-PASS",
+    "reference_type": null,
+    "reference_name": null,
+    "role": null,
+    "assigned_by": null,
+    "assigned_by_full_name": "",
+    "sender": null,
+    "assignment_rule": null,
+    "doctype": "ToDo"
+  }
+}
